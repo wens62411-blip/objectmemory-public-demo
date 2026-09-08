@@ -149,18 +149,17 @@ class NanoDetDetectorBackend(DetectorBackend):
         for stride, class_score, bbox_prediction, anchors in zip(self.strides, class_scores, bbox_predictions, self.anchors):
             class_score = np.squeeze(class_score, axis=0) if class_score.ndim == 3 else class_score
             bbox_prediction = np.squeeze(bbox_prediction, axis=0) if bbox_prediction.ndim == 3 else bbox_prediction
+            # Select the same top anchors before decoding their distributions.
+            if class_score.shape[0] > 1000:
+                keep = class_score.max(axis=1).argsort()[::-1][:1000]
+                anchors, bbox_prediction, class_score = anchors[keep], bbox_prediction[keep], class_score[keep]
             exponent = np.exp(bbox_prediction.reshape(-1, self.reg_max + 1))
             distances = exponent / np.sum(exponent, axis=1, keepdims=True)
             distances = np.dot(distances, self.project).reshape(-1, 4) * stride
-            if class_score.shape[0] > 1000:
-                keep = class_score.max(axis=1).argsort()[::-1][:1000]
-                level_anchors, distances, class_score = anchors[keep], distances[keep], class_score[keep]
-            else:
-                level_anchors = anchors
-            x1 = np.clip(level_anchors[:, 0] - distances[:, 0], 0, self.image_shape[1])
-            y1 = np.clip(level_anchors[:, 1] - distances[:, 1], 0, self.image_shape[0])
-            x2 = np.clip(level_anchors[:, 0] + distances[:, 2], 0, self.image_shape[1])
-            y2 = np.clip(level_anchors[:, 1] + distances[:, 3], 0, self.image_shape[0])
+            x1 = np.clip(anchors[:, 0] - distances[:, 0], 0, self.image_shape[1])
+            y1 = np.clip(anchors[:, 1] - distances[:, 1], 0, self.image_shape[0])
+            x2 = np.clip(anchors[:, 0] + distances[:, 2], 0, self.image_shape[1])
+            y2 = np.clip(anchors[:, 1] + distances[:, 3], 0, self.image_shape[0])
             boxes_per_level.append(np.column_stack((x1, y1, x2, y2)))
             scores_per_level.append(class_score)
         boxes = np.concatenate(boxes_per_level, axis=0)

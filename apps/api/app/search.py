@@ -1,8 +1,10 @@
 from difflib import SequenceMatcher
 from datetime import datetime, timezone
+from heapq import nlargest
 import re
 
 REAL_CONFIRMED_SOURCES={'opencv_camera','esp32_real','authorized_screen_capture'}
+TYPE_ALIASES={'phone':('手机','电话'),'keys':('钥匙',),'wallet':('钱包',)}
 
 
 def _evidence_instant(value):
@@ -31,9 +33,6 @@ def location_result(item,events,runtime_mode='REAL',current_state=None):
         current_state={**current_state,'last_observed':{**legacy,'holding_status':'nearby',
             'interaction':{**(legacy.get('interaction') or {}),'holding_status':'nearby',
                            'release_observed':False,'reason':'legacy_proximity_only'}}}
-    events=sorted(events,key=lambda e:_evidence_instant(e.get('timestamp_end') or e.get('timestamp_start')),reverse=True)
-    def first(predicate):
-        return next((e for e in events if predicate(e)),None)
     def is_confirmed(event):
         return (
             bool(event)
@@ -57,14 +56,19 @@ def location_result(item,events,runtime_mode='REAL',current_state=None):
     # not be hidden by an older video episode whose source end timestamp happens
     # to lie later (clock skew and delayed ingestion are both possible).
     current_evidence_id=(current_state or {}).get('evidence_event_id')
-    current_evidence=first(lambda e: current_evidence_id and (e.get('event_id')==current_evidence_id or e.get('id')==current_evidence_id))
-    confirmed=current_evidence if is_confirmed(current_evidence) else first(is_confirmed)
-    seen=confirmed
-    picked=None
-    occluded=None
-    exited=None
-    latest=events[0] if events else None
-    evidence=confirmed or seen or picked or occluded or exited
+    latest=confirmed=current_evidence=None
+    for event in events:
+        instant=_evidence_instant(event.get('timestamp_end') or event.get('timestamp_start'))
+        # Strict comparisons preserve the input order for equal/invalid times.
+        if latest is None or instant>latest_instant:
+            latest,latest_instant=event,instant
+        if (confirmed is None or instant>confirmed_instant) and is_confirmed(event):
+            confirmed,confirmed_instant=event,instant
+        if (current_evidence_id and (event.get('event_id')==current_evidence_id or event.get('id')==current_evidence_id)
+                and (current_evidence is None or instant>current_instant)):
+            current_evidence,current_instant=event,instant
+    if is_confirmed(current_evidence):confirmed=current_evidence
+    evidence=seen=confirmed
     status=latest['event_type'] if latest else 'unknown'
     place=lambda e: f"{e.get('room_name') or '未命名房间'} · {e.get('zone_name') or '未定义区域'}"
     observed=(current_state or {}).get('last_observed') or {}
@@ -117,38 +121,18 @@ def location_result(item,events,runtime_mode='REAL',current_state=None):
         status='last_seen'
         answer=f"{item['name']}最后在{current_place}被看到，尚未有新的确认放置证据。"
         if confirmed:answer+=f" 上一次确认放置在{place(confirmed)}。"
-    elif not evidence and not current_state:
-        answer='暂时没有真实摄像头产生的位置记录。' if runtime_mode=='REAL' else f"当前 {runtime_mode} 模式还没有{item['name']}的位置记录。"
-    elif status=='occluded':
-        evidence=occluded
-        answer=f"{item['name']}最后出现在{place(occluded)}，随后被遮挡，当前具体位置未完全确认。"
-    elif status=='exited_view':
-        evidence=exited
-        answer=f"{item['name']}从{place(exited)}离开摄像头视野；当前去向未确认。"
     elif confirmed:
         answer=f"{item['name']}最后一次确认放在{place(confirmed)}。"
-    elif current_state:
-        answer=f"{item['name']}最后在{current_state.get('current_room') or '未命名房间'} · {current_state.get('current_zone') or '未定义区域'}被看到，尚未确认已放稳。"
     else:
-        answer=f"{item['name']}最后出现在{place(seen or evidence)}，尚未确认已放稳。"
-    evidence_provenance = None
-    if evidence:
-        evidence_provenance = {
-            'validation_run_id': evidence.get('validation_run_id'),
-            'detection_mode': evidence.get('detection_mode'),
-            'aruco_id': evidence.get('aruco_id'),
-            'source_session_id': evidence.get('source_session_id'),
-            'trajectory': evidence.get('trajectory'),
-            'before_screenshot': evidence.get('before_screenshot'),
-            'before_screenshot_sha256': evidence.get('before_screenshot_sha256'),
-            'after_screenshot': evidence.get('after_screenshot'),
-            'after_screenshot_sha256': evidence.get('after_screenshot_sha256'),
-            'clip_path': evidence.get('clip_path'),
-            'clip_sha256': evidence.get('clip_sha256'),
-        }
+        answer='暂时没有真实摄像头产生的位置记录。' if runtime_mode=='REAL' else f"当前 {runtime_mode} 模式还没有{item['name']}的位置记录。"
+    evidence_provenance = {key:evidence.get(key) for key in (
+        'validation_run_id','detection_mode','aruco_id','source_session_id','trajectory',
+        'before_screenshot','before_screenshot_sha256','after_screenshot',
+        'after_screenshot_sha256','clip_path','clip_sha256',
+    )} if evidence else None
     return dict(
-        item=item,last_confirmed=confirmed,last_seen=seen,last_picked_up=picked,
-        last_occluded=occluded,last_exited=exited,status=status,answer=answer,
+        item=item,last_confirmed=confirmed,last_seen=seen,last_picked_up=None,
+        last_occluded=None,last_exited=None,status=status,answer=answer,
         evidence=evidence,evidence_provenance=evidence_provenance,
         current_state=current_state,runtime_mode=runtime_mode,
         last_observed=observation,last_confirmed_placement=confirmed,
@@ -170,18 +154,17 @@ def match_items(query,items):
         for word in stop_words:text=text.replace(word,'')
         return re.sub(r'[？?。！!，,\s]','',text)
     clean_query=meaningful(query)
-    ranked=[]
+    candidates=[]
     exact=[]
     for item in items:
-        names=[item['name'],*(item.get('aliases') or [])]
-        item_type=item.get('type','')
-        names += {'phone':['手机','电话'],'keys':['钥匙'],'wallet':['钱包']}.get(item_type,[])
-        names=[meaningful(n.lower()) for n in names if n]
+        names=[meaningful(n.lower()) for n in (
+            item['name'],*(item.get('aliases') or []),*TYPE_ALIASES.get(item.get('type'),()),
+        ) if n]
         if any(n and n in clean_query for n in names):
             exact.append(item)
-            continue
-        score=max((SequenceMatcher(None,n,clean_query).ratio() for n in names if n),default=0)
-        if score>=0.5:
-            ranked.append((score,item))
-    if exact:return exact[:5]
-    return [i for _,i in sorted(ranked,key=lambda p:p[0],reverse=True)][:5]
+            if len(exact)==5:return exact
+        elif not exact:candidates.append((item,names))
+    if exact:return exact
+    scores=((max((SequenceMatcher(None,n,clean_query).ratio() for n in names if n),default=0),item)
+            for item,names in candidates)
+    return [item for score,item in nlargest(5,scores,key=lambda pair:pair[0]) if score>=0.5]

@@ -27,10 +27,13 @@ class RegistrationDBStub:
                     'reference_ids': ['ref'], 'embeddings': []}
         pytest.fail(f'Unexpected table read: {table}')
 
-    def list(self, table, filters):
+    def list(self, table, filters, limit=1000):
+        if table == 'item_recognition_profiles':
+            return [{'id': row_id, **self.get(table, row_id)} for row_id in filters['id']][:limit]
         assert table == 'item_reference_images'
-        return [{'id': 'ref', 'item_id': filters['item_id'],
-                 'region_confirmed': True, 'suggested_regions': self.proposals}]
+        item_ids = filters['item_id'] if isinstance(filters['item_id'], list) else [filters['item_id']]
+        return [{'id': 'ref', 'item_id': item_id,
+                 'region_confirmed': True, 'suggested_regions': self.proposals} for item_id in item_ids][:limit]
 
 
 @pytest.mark.parametrize('category_evidence,expects_warning', [

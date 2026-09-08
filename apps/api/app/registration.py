@@ -11,6 +11,7 @@ import json
 import math
 import os
 import threading
+from collections import defaultdict
 from pathlib import Path
 from uuid import uuid4
 
@@ -130,51 +131,56 @@ class RegistrationService:
             return [], f'自动框建议失败，请手动确认目标：{exc}'
 
     def add(self, item_id: str, content: bytes, capture_source=None):
+        return self.add_batch(item_id, [content], capture_source=capture_source)[0]
+
+    def add_batch(self, item_id: str, contents: list[bytes], *, capture_source=None):
         if not self.db.get('items', item_id):
             raise RegistrationError('物品不存在。')
-        frame, display_bytes = self.decode(content)
-        digest = hashlib.sha256(content).hexdigest()
         with self.lock:
             references = self.db.list('item_reference_images', {'item_id': item_id})
-            for existing in references:
-                if existing.get('sha256') == digest:
-                    return {**self.public_reference(existing), 'duplicate': True}
-            if len(references) >= self.MAX_REFERENCES:
-                raise RegistrationError('每件物品最多 12 张参考照片，请先删除不需要的角度。')
-            reference_id = uuid4().hex
-            original = self._write(f'{reference_id}-original' + ('.png' if content.startswith(b'\x89PNG') else '.jpg'), content)
-            display = None
-            try:
-                display = self._write(f'{reference_id}-display.jpg', display_bytes)
-                suggestions, suggestion_error = self._suggest(frame)
-                row = self.db.save('item_reference_images', {
-                    'item_id': item_id, 'path': display, 'original_path': original,
-                    'sha256': digest, 'width': frame.shape[1], 'height': frame.shape[0],
-                    'features': None, 'region': None, 'region_confirmed': False,
-                    'suggested_regions': suggestions, 'status': 'image_saved', 'crop_path': None,
-                    'capture_source': capture_source,
-                    'quality': {'suggestion_error': suggestion_error, 'target_confirmation_required': True},
-                }, reference_id)
-                self.invalidate(item_id)
-                return self.public_reference(row)
-            except Exception:
-                for url in (original, display):
-                    if url:
-                        self._path(url).unlink(missing_ok=True)
-                raise
-
-    def add_batch(self, item_id: str, contents: list[bytes]):
-        # Capacity and all image validation precede writes under the same lock.
-        # Duplicate bytes within a batch count once, just like existing photos.
-        with self.lock:
-            for content in contents:
-                self.decode(content)
-            existing = self.db.list('item_reference_images', {'item_id': item_id})
-            digests = {row.get('sha256') for row in existing}
-            incoming = {hashlib.sha256(content).hexdigest() for content in contents}
-            if len(existing) + len(incoming - digests) > self.MAX_REFERENCES:
+            by_digest = {row.get('sha256'): row for row in references}
+            digests = [hashlib.sha256(content).hexdigest() for content in contents]
+            incoming = dict(zip(digests, contents))
+            if len(references) + len(incoming.keys() - by_digest.keys()) > self.MAX_REFERENCES:
                 raise RegistrationError('整批未保存：每件物品最多 12 张参考照片，请减少本次选择或删除旧角度。')
-            return [self.add(item_id, content) for content in contents]
+            # Validate every new image before writes. Keep compressed display
+            # bytes and proposals, not a batch of full-resolution frames.
+            prepared = {}
+            for digest, content in incoming.items():
+                if digest in by_digest:
+                    continue
+                frame, display_bytes = self.decode(content)
+                suggestions, suggestion_error = self._suggest(frame)
+                prepared[digest] = (display_bytes, frame.shape[:2], suggestions, suggestion_error)
+                del frame
+            result = []
+            for digest, content in zip(digests, contents):
+                if digest in by_digest:
+                    result.append({**self.public_reference(by_digest[digest]), 'duplicate': True})
+                    continue
+                display_bytes, (height, width), suggestions, suggestion_error = prepared.pop(digest)
+                reference_id = uuid4().hex
+                original = self._write(f'{reference_id}-original' + ('.png' if content.startswith(b'\x89PNG') else '.jpg'), content)
+                display = None
+                try:
+                    display = self._write(f'{reference_id}-display.jpg', display_bytes)
+                    row = self.db.save('item_reference_images', {
+                        'item_id': item_id, 'path': display, 'original_path': original,
+                        'sha256': digest, 'width': width, 'height': height,
+                        'features': None, 'region': None, 'region_confirmed': False,
+                        'suggested_regions': suggestions, 'status': 'image_saved', 'crop_path': None,
+                        'capture_source': capture_source,
+                        'quality': {'suggestion_error': suggestion_error, 'target_confirmation_required': True},
+                    }, reference_id)
+                    self.invalidate(item_id)
+                    by_digest[digest] = row
+                    result.append(self.public_reference(row))
+                except Exception:
+                    for url in (original, display):
+                        if url:
+                            self._path(url).unlink(missing_ok=True)
+                    raise
+            return result
 
     @staticmethod
     def public_reference(row):
@@ -215,25 +221,26 @@ class RegistrationService:
             self.invalidate(item_id)
             return self.public_reference(updated)
 
-    def profile(self, item_id, engines=None):
-        row = self.db.get('item_recognition_profiles', item_id) or {}
-        refs = self.db.list('item_reference_images', {'item_id': item_id})
-        version = int(row.get('profile_version') or 0)
-        loaded = []
-        for camera_id, engine in (engines or {}).items():
-            if getattr(engine, 'loaded_profile_versions', {}).get(item_id) == version and row.get('status') == 'ready':
-                loaded.append(camera_id)
-        preparation = {'status': 'not_prepared'}
+    def preparation(self):
         status_path = self.model_root / 'appearance-status.json'
         try:
             if status_path.is_file() and status_path.stat().st_size <= 16384:
-                preparation = json.loads(status_path.read_text(encoding='utf-8'))
+                return json.loads(status_path.read_text(encoding='utf-8'))
         except (OSError, ValueError):
-            preparation = {'status': 'unknown', 'error': '本地准备状态暂时不可读'}
+            return {'status': 'unknown', 'error': '本地准备状态暂时不可读'}
+        return {'status': 'not_prepared'}
+
+    def profile(self, item_id, engines=None, *, item=None, preparation=None):
+        if item is None:
+            item = self.items_for_inference([self.db.get('items', item_id) or {'id': item_id}])[0]
+        row = item['appearance_profile'] or {}
+        refs = item['reference_images']
+        version = int(row.get('profile_version') or 0)
+        loaded = [camera_id for camera_id, engine in (engines or {}).items()
+                  if row.get('status') == 'ready' and getattr(engine, 'loaded_profile_versions', {}).get(item_id) == version]
         # Surface the saved detector evidence; GET does not rerun inference or
         # claim that a failed category proposal invalidates a user's identity.
         from services.vision.detectors.appearance import normalize_category
-        item = self.db.get('items', item_id) or {}
         category = normalize_category(item.get('type'))
         warnings = []
         if refs and category == 'phone' and not any(
@@ -250,16 +257,20 @@ class RegistrationService:
             'loaded_profile_version': version if loaded else self._loaded_versions.get(item_id), 'loaded_camera_ids': loaded,
             'error': row.get('error'),
             'quality_warnings': warnings,
-            'model_preparation': preparation,
+            'model_preparation': self.preparation() if preparation is None else preparation,
             'model_runtime': self._encoder.health() if self._encoder is not None else {'status': 'not_loaded', 'available': False},
         }
 
-    def items_for_inference(self):
-        result = []
-        for item in self.db.list('items'):
-            profile = self.db.get('item_recognition_profiles', item['id'])
-            result.append({**item, 'reference_images': self.db.list('item_reference_images', {'item_id': item['id']}), 'appearance_profile': profile})
-        return result
+    def items_for_inference(self, items=None):
+        items = self.db.list('items') if items is None else items
+        if not items:
+            return []
+        ids = [item['id'] for item in items]
+        profiles = {row['id']: row for row in self.db.list('item_recognition_profiles', {'id': ids}, limit=len(ids))}
+        references = defaultdict(list)
+        for row in self.db.list('item_reference_images', {'item_id': ids}, limit=100000):
+            references[row['item_id']].append(row)
+        return [{**item, 'reference_images': references[item['id']], 'appearance_profile': profiles.get(item['id'])} for item in items]
 
     def build(self, item_id):
         with self.lock:

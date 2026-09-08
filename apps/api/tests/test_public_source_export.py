@@ -44,7 +44,7 @@ def test_markdown_redaction_preserves_failure_and_public_model_hash(tmp_path):
     public = (tmp_path / "public/docs/REPORT.md").read_text(encoding="utf-8")
     assert "private-hotspot" not in public and personal not in public
     assert model in public and "测试失败" in public
-    assert personal not in (tmp_path / "public/audit/note.md").read_text()
+    assert personal not in (tmp_path / "public/audit/note.md").read_text(encoding="utf-8")
     assert (source / "docs/REPORT.md").read_text(encoding="utf-8") == original
 
 

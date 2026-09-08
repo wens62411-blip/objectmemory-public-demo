@@ -78,6 +78,7 @@ describe('Mock component contracts: ESP32 LAN preflight, not hardware acceptance
     expect(screen.queryByRole('button', { name: '启动虚拟设备' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '一键安装并绑定' })).toBeDisabled()
     expect(realFetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+    expect(realFetch.mock.calls.some(([path]) => path === '/api/virtual-device/status')).toBe(false)
     cleanup()
     runtime.mode = 'DEMO'
     const demoFetch = setup(session, { ports: [] })
@@ -86,6 +87,7 @@ describe('Mock component contracts: ESP32 LAN preflight, not hardware acceptance
     expect(screen.getByRole('button', { name: '一键安装并绑定' })).toBeDisabled()
     expect(screen.getByText('仅 REAL 模式检测')).toBeInTheDocument()
     expect(demoFetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+    await waitFor(() => expect(demoFetch.mock.calls.some(([path]) => path === '/api/virtual-device/status')).toBe(true))
   })
 
   it('remembers only the whitelisted board, never password or checkbox authorization', async () => {

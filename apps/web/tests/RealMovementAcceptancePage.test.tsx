@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ACCEPTANCE_SCENARIOS, normalizedRegion, RealMovementAcceptancePage, regionsOverlap, runMatchesScenarioContract } from '../src/pages/RealMovementAcceptancePage'
@@ -54,7 +54,53 @@ function LocationProbe() { return <output data-testid="location">{useLocation().
 function renderPage(query: string) { return render(<MemoryRouter initialEntries={[`/acceptance/real-movement${query}`]}><RealMovementAcceptancePage /><LocationProbe /></MemoryRouter>) }
 
 describe('Mock 组件单测：真实移动验收套件合同', () => {
-  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+  afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  it('慢预检和识别状态不重叠，隐藏页面中止并暂停轮询', async () => {
+    vi.useFakeTimers()
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    const pending: AbortSignal[] = []
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith('/api/acceptance/')) return new Promise<Response>((_resolve, reject) => {
+        pending.push(init!.signal!)
+        init!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+      })
+      return Promise.resolve(commonRequest(String(input), init)!)
+    }))
+    await act(async () => { renderPage('?camera=cam-real&item=phone-one') })
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000) })
+    expect(pending).toHaveLength(2)
+    expect(pending.every(signal => !signal.aborted)).toBe(true)
+    visibility.mockReturnValue('hidden')
+    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(20000) })
+    expect(pending).toHaveLength(2)
+    expect(pending.every(signal => signal.aborted)).toBe(true)
+  })
+
+  it('切换摄像头后旧预检成功响应不能放行新摄像头', async () => {
+    vi.useFakeTimers()
+    let resolveOld!: (response: Response) => void
+    let oldSignal!: AbortSignal
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input)
+      if (path === '/api/cameras') return Promise.resolve(json([camera, { ...camera, id: 'cam-new' }]))
+      if (path === '/api/acceptance/preflight?camera_id=cam-real') {
+        oldSignal = init!.signal!
+        return new Promise<Response>(resolve => { resolveOld = resolve })
+      }
+      if (path === '/api/acceptance/preflight?camera_id=cam-new') return Promise.resolve(json({ ...preflight, camera_id: 'cam-new', ready: false }))
+      return Promise.resolve(commonRequest(path, init)!)
+    }))
+    await act(async () => { renderPage('?camera=cam-real&item=phone-one') })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    fireEvent.change(screen.getByRole('combobox', { name: '用于验收的摄像头' }), { target: { value: 'cam-new' } })
+    expect(oldSignal.aborted).toBe(true)
+    await act(async () => { resolveOld(json(preflight)); await Promise.resolve() })
+    expect(screen.getByRole('button', { name: '下一步：选择物品' })).toBeDisabled()
+    await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+    expect(screen.getByRole('button', { name: '下一步：选择物品' })).toBeDisabled()
+  })
 
   it('用预检的候选局域网链接生成真正二维码，但不把二维码存在当成手机可达', async () => {
     const fetchMock=vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

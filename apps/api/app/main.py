@@ -1216,10 +1216,8 @@ def _build_app(layout,testing,mode,mode_lease,listener_info_provider=None):
     def health():
         cameras=runtime.db.list('cameras')
         statuses=[runtime.camera(c)['health'] for c in cameras]
-        events=runtime.db.list('events',limit=10000)
-        today=datetime.now().astimezone().date()
-        today_count=sum(datetime.fromisoformat(e['timestamp_start'].replace('Z','+00:00')).astimezone().date()==today for e in events)
-        return {'status':'ok','version':VERSION,'local_processing':True,'runtime_mode':runtime.mode.value,'source_type':'service','is_simulated':runtime.mode is not RuntimeMode.REAL,'stats':{'cameras':len(cameras),'online_cameras':sum(s.get('status') in {'ready','running','online'} for s in statuses),'items':len(runtime.db.list('items')),'events':len(events),'today_events':today_count,'fps':round(sum(s.get('fps',0) or 0 for s in statuses),1),'latency_ms':round(max([s.get('latency_ms',0) or 0 for s in statuses] or [0]),1)}}
+        event_count,today_count=runtime.db.event_counts(datetime.now().astimezone().date().isoformat())
+        return {'status':'ok','version':VERSION,'local_processing':True,'runtime_mode':runtime.mode.value,'source_type':'service','is_simulated':runtime.mode is not RuntimeMode.REAL,'stats':{'cameras':len(cameras),'online_cameras':sum(s.get('status') in {'ready','running','online'} for s in statuses),'items':runtime.db.count('items'),'events':event_count,'today_events':today_count,'fps':round(sum(s.get('fps',0) or 0 for s in statuses),1),'latency_ms':round(max([s.get('latency_ms',0) or 0 for s in statuses] or [0]),1)}}
 
     @app.get('/api/runtime-config')
     def runtime_config(request:Request):
@@ -2034,12 +2032,17 @@ def _build_app(layout,testing,mode,mode_lease,listener_info_provider=None):
         old=runtime.require('zones',zone_id);runtime.db.delete('zones',zone_id);runtime.restart(old['camera_id'])
         return {'success':True,**response_meta('admin_action')}
 
-    def item_result(row):
+    def item_result(row,engines=None,preparation=None):
+        if 'appearance_profile' not in row:
+            row=runtime.registration.items_for_inference([row])[0]
         seeded=runtime.mode is RuntimeMode.DEMO and str(row.get('id','')).startswith('demo-')
-        return {**row,'reference_images':[runtime.registration.public_reference(ref) for ref in runtime.db.list('item_reference_images',{'item_id':row['id']})],'recognition_profile':runtime.registration.profile(row['id'],dict(runtime.engines)),'companion_online':bool(runtime.companions.get(row['id'])),**response_meta('demo_seed' if seeded else 'user_registration',seeded)}
+        item={key:value for key,value in row.items() if key not in {'reference_images','appearance_profile'}}
+        return {**item,'reference_images':[runtime.registration.public_reference(ref) for ref in row['reference_images']],'recognition_profile':runtime.registration.profile(row['id'],dict(runtime.engines) if engines is None else engines,item=row,preparation=preparation),'companion_online':bool(runtime.companions.get(row['id'])),**response_meta('demo_seed' if seeded else 'user_registration',seeded)}
 
     @app.get('/api/items')
-    def items():return [item_result(i) for i in runtime.db.list('items')]
+    def items():
+        engines,preparation=dict(runtime.engines),runtime.registration.preparation()
+        return [item_result(i,engines,preparation) for i in runtime.registration.items_for_inference()]
 
     @app.post('/api/items')
     def add_item(body:ItemInput):
@@ -2083,7 +2086,6 @@ def _build_app(layout,testing,mode,mode_lease,listener_info_provider=None):
             if len(content)>12*1024*1024:raise HTTPException(413,'每张照片请控制在 12 MB 以内。')
             total_size+=len(content)
             if total_size>64*1024*1024:raise HTTPException(413,'单次参考图片上传总量请控制在 64 MB 以内。')
-            await anyio_to_thread.run_sync(runtime.registration.decode,content)
             prepared.append(content)
         try:
             result=await anyio_to_thread.run_sync(runtime.registration.add_batch,item_id,prepared)
@@ -2183,7 +2185,7 @@ def _build_app(layout,testing,mode,mode_lease,listener_info_provider=None):
             from services.vision.detectors.appearance import normalize_category
             with runtime.lock:
                 engines=dict(runtime.engines)
-            profile=runtime.registration.profile(item_id,engines)
+            profile=result['item']['recognition_profile']
             category=normalize_category(result['item'].get('type'))
             # These are cached, source-bound diagnostic frames only. Never run
             # inference or activate/rebuild a profile from this read endpoint.

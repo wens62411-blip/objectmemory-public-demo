@@ -37,6 +37,7 @@ function rememberedBoard(): UsbBoardModel {
 }
 
 export function DevicesPage() {
+  const runtime = useRuntime()
   const [boardModel, setBoardModel] = useState<UsbBoardModel>(rememberedBoard)
   const boardManuallySelected = useRef(false)
   const backendManuallyEdited = useRef(false)
@@ -45,7 +46,7 @@ export function DevicesPage() {
   const ports = usePolling<PortsResponse>('/api/firmware/ports', emptyPorts, 5000)
   const devices = usePolling<FirmwareDevice[]>('/api/devices', [], 5000)
   const firmware = usePolling<FirmwareStatus>(boardModel === 'ai_thinker_esp32cam' ? '/api/firmware/status' : `/api/firmware/status?board_model=${boardModel}`, {}, 5000)
-  const virtual = usePolling<VirtualStatus>('/api/virtual-device/status', { running: false }, 3000)
+  const virtual = usePolling<VirtualStatus>(runtime.mode === 'DEMO' ? '/api/virtual-device/status' : null, { running: false }, 3000)
   const [form, setForm] = useState<InstallForm>({ port: '', ssid: '', password: '', backend_url: '', device_name: '客厅摄像头', room_name: '客厅' })
   const onDetectedSsid = useCallback((ssid: string) => setForm((value) => value.ssid ? value : { ...value, ssid }), [])
   const [lanMessage, setLanMessage] = useState('正在验证当前服务是否实际监听局域网…')
@@ -59,7 +60,6 @@ export function DevicesPage() {
   const [enrollment, setEnrollment] = useState<{ pairing_code: string; expires_at: string; expires_in: number } | null>(null)
   const logRef = useRef<HTMLDivElement>(null)
   const { notify } = useToast()
-  const runtime = useRuntime()
   const realHardwareMode = runtime.mode === 'REAL'
 
   const eligiblePorts = useMemo(() => ports.data.ports.filter((port) => port.eligible === true), [ports.data.ports])

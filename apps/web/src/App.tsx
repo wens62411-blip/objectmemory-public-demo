@@ -1,26 +1,30 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { api, ApiError } from './lib/api'
 import { ToastProvider } from './components/Toast'
 import { AppShell } from './components/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
-import { SearchPage } from './pages/SearchPage'
-import { LivePage } from './pages/LivePage'
-import { CamerasPage } from './pages/CamerasPage'
-import { ZoneEditorPage } from './pages/ZoneEditorPage'
-import { ItemsPage } from './pages/ItemsPage'
-import { EventsPage } from './pages/EventsPage'
-import { DevicesPage } from './pages/DevicesPage'
-import { CompanionPage } from './pages/CompanionPage'
-import { SettingsPage } from './pages/SettingsPage'
-import { ScenePage } from './pages/ScenePage'
-import { CameraDiagnosticsPage } from './pages/CameraDiagnosticsPage'
-import { StoragePage } from './pages/StoragePage'
-import { ValidationMarkerPage } from './pages/ValidationMarkerPage'
-import { RealMovementAcceptancePage } from './pages/RealMovementAcceptancePage'
+import { Loading } from './components/UI'
 import { RuntimeProvider } from './contexts/RuntimeContext'
 import { LoaderCircle, LockKeyhole, RefreshCw, WifiOff } from 'lucide-react'
 import { Brand, BrandMark } from './components/Brand'
+
+const CompanionPage = lazy(() => import('./pages/CompanionPage').then(m => ({ default: m.CompanionPage })))
+const ValidationMarkerPage = lazy(() => import('./pages/ValidationMarkerPage').then(m => ({ default: m.ValidationMarkerPage })))
+const pages = [
+  { path: 'search', Component: lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage }))) },
+  { path: 'live', Component: lazy(() => import('./pages/LivePage').then(m => ({ default: m.LivePage }))) },
+  { path: 'cameras', Component: lazy(() => import('./pages/CamerasPage').then(m => ({ default: m.CamerasPage }))) },
+  { path: 'camera-diagnostics', Component: lazy(() => import('./pages/CameraDiagnosticsPage').then(m => ({ default: m.CameraDiagnosticsPage }))) },
+  { path: 'cameras/:cameraId/zones', Component: lazy(() => import('./pages/ZoneEditorPage').then(m => ({ default: m.ZoneEditorPage }))) },
+  { path: 'items', Component: lazy(() => import('./pages/ItemsPage').then(m => ({ default: m.ItemsPage }))) },
+  { path: 'scene', Component: lazy(() => import('./pages/ScenePage').then(m => ({ default: m.ScenePage }))) },
+  { path: 'events', Component: lazy(() => import('./pages/EventsPage').then(m => ({ default: m.EventsPage }))) },
+  { path: 'devices', Component: lazy(() => import('./pages/DevicesPage').then(m => ({ default: m.DevicesPage }))) },
+  { path: 'storage', Component: lazy(() => import('./pages/StoragePage').then(m => ({ default: m.StoragePage }))) },
+  { path: 'settings', Component: lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage }))) },
+  { path: 'acceptance/real-movement', Component: lazy(() => import('./pages/RealMovementAcceptancePage').then(m => ({ default: m.RealMovementAcceptancePage }))) },
+]
 
 function SessionGate({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<'loading' | 'ready' | 'pin' | 'error'>('loading')
@@ -75,26 +79,17 @@ export function App() {
     <ToastProvider>
       <SessionGate>
         <RuntimeProvider>
-          <Routes>
-            <Route path="/companion" element={<CompanionPage />} />
-            <Route path="/companion/validation-marker" element={<ValidationMarkerPage />} />
-            <Route element={<AppShell />}>
-              <Route index element={<DashboardPage />} />
-              <Route path="search" element={<SearchPage />} />
-              <Route path="live" element={<LivePage />} />
-              <Route path="cameras" element={<CamerasPage />} />
-              <Route path="camera-diagnostics" element={<CameraDiagnosticsPage />} />
-              <Route path="cameras/:cameraId/zones" element={<ZoneEditorPage />} />
-              <Route path="items" element={<ItemsPage />} />
-              <Route path="scene" element={<ScenePage />} />
-              <Route path="events" element={<EventsPage />} />
-              <Route path="devices" element={<DevicesPage />} />
-              <Route path="storage" element={<StoragePage />} />
-              <Route path="settings" element={<SettingsPage />} />
-              <Route path="acceptance/real-movement" element={<RealMovementAcceptancePage />} />
-            </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <Suspense fallback={<Loading label="正在加载页面…" />}>
+            <Routes>
+              <Route path="/companion" element={<CompanionPage />} />
+              <Route path="/companion/validation-marker" element={<ValidationMarkerPage />} />
+              <Route element={<AppShell />}>
+                <Route index element={<DashboardPage />} />
+                {pages.map(({ path, Component }) => <Route key={path} path={path} element={<Component />} />)}
+              </Route>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         </RuntimeProvider>
       </SessionGate>
     </ToastProvider>

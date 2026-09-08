@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -69,26 +68,20 @@ class OnnxYoloDetectorBackend(DetectorBackend):
         # Ultralytics ONNX may emit [84,N] or [N,84].
         if predictions.shape[0] < predictions.shape[1] and predictions.shape[0] in (84, 85):
             predictions = predictions.T
-        boxes: list[list[int]] = []
-        scores: list[float] = []
-        class_ids: list[int] = []
-        for row in predictions:
-            if len(row) < 5:
-                continue
-            class_scores = row[4:]
-            class_id = int(np.argmax(class_scores))
-            score = float(class_scores[class_id])
-            if score < self.confidence:
-                continue
-            cx, cy, bw, bh = (float(value) * scale for value in row[:4])
-            boxes.append([int(cx - bw / 2), int(cy - bh / 2), int(bw), int(bh)])
-            scores.append(score)
-            class_ids.append(class_id)
+        if predictions.shape[1] < 5:
+            return []
+        # Reduce all class rows in NumPy; only decode boxes above the gate.
+        class_ids = predictions[:, 4:].argmax(axis=1)
+        scores = predictions[np.arange(len(predictions)), class_ids + 4].astype(np.float64)
+        selected = ~(scores < self.confidence)
+        centers, sizes = np.split(predictions[selected, :4].astype(np.float64) * scale, 2, axis=1)
+        boxes = [[int(value) for value in row] for row in np.column_stack((centers - sizes / 2, sizes))]
+        scores, class_ids = scores[selected].tolist(), class_ids[selected]
         keep = cv2.dnn.NMSBoxes(boxes, scores, self.confidence, 0.45)
         detections: list[Detection] = []
         for index in np.asarray(keep).reshape(-1) if len(keep) else []:
             x, y, w, h = boxes[int(index)]
-            class_id = class_ids[int(index)]
+            class_id = int(class_ids[int(index)])
             label = COCO80[class_id] if class_id < len(COCO80) else f"class_{class_id}"
             detections.append(Detection(
                 identity=f"generic:{label}:{index}", label=label,
