@@ -1,3 +1,4 @@
+import './PhysicalAcceptance.css'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -751,7 +752,7 @@ export function RealMovementAcceptancePage() {
   }
 
   return <div className="real-acceptance-page">
-    <PageHeader eyebrow="P0 · 真实链路验收" title="真实移动验收" description="这不是演示页。通过表示 REAL 模式下的本机 OpenCV 闭环已完成；物理镜头身份仍需现场人员对照画面确认。" actions={<button type="button" className="button secondary" onClick={() => void refreshPreflight()}><RefreshCw />刷新预检</button>} />
+    <PageHeader title="真实移动验收" description="这不是演示页。通过表示 REAL 模式下的本机 OpenCV 闭环已完成；物理镜头身份仍需现场人员对照画面确认。" actions={<button type="button" className="button secondary" onClick={() => void refreshPreflight()}><RefreshCw />刷新预检</button>} />
     {suiteLoading
       ? <section className="acceptance-setup-panel panel"><div className="acceptance-plain-status"><LoaderCircle className="spin" /><div><strong>正在读取服务端验收套件</strong><span>刷新只凭 URL 中唯一的 suite ID 恢复，不读取 runs 列表。</span></div></div></section>
       : suiteId && !suite

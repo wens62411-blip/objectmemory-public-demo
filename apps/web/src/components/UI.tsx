@@ -1,11 +1,11 @@
-import { AlertCircle, ArrowRight, LoaderCircle, Search, WifiOff } from 'lucide-react'
-import type { FormEvent, ReactNode } from 'react'
+import { AlertCircle, ArrowRight, LoaderCircle, Search, WifiOff, X } from 'lucide-react'
+import { useId, useRef, type FormEvent, type ReactNode } from 'react'
+import { useOverlayFocus } from '../hooks/useOverlayFocus'
 
-export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode }) {
+export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
   return (
     <header className="page-header">
       <div>
-        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
         <h1>{title}</h1>
         {description && <p className="page-description">{description}</p>}
       </div>
@@ -19,12 +19,12 @@ export function Badge({ children, tone = 'neutral' }: { children: ReactNode; ton
 }
 
 export function Loading({ label = '正在读取…' }: { label?: string }) {
-  return <div className="state-block"><LoaderCircle className="spin" /><span>{label}</span></div>
+  return <div className="state-block" role="status"><LoaderCircle className="spin" aria-hidden="true" /><span>{label}</span></div>
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <div className="state-block error-state">
+    <div className="state-block error-state" role="alert">
       <WifiOff /><strong>暂时没有连上</strong><span>{message}</span>
       {onRetry && <button className="button secondary small" onClick={onRetry}>再试一次</button>}
     </div>
@@ -43,7 +43,7 @@ export function SearchBox({ value, onChange, onSubmit, loading, placeholder = '�
     <form className={`search-box ${compact ? 'compact-search' : ''}`} onSubmit={submit}>
       <Search aria-hidden="true" />
       <input aria-label="寻找物品" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
-      <button className="search-submit" type="submit" disabled={loading || !value.trim()}>
+      <button className="search-submit" aria-label={loading ? '正在查找' : '帮我找'} type="submit" disabled={loading || !value.trim()}>
         {loading ? <LoaderCircle className="spin" /> : <><span>帮我找</span><ArrowRight /></>}
       </button>
     </form>
@@ -55,16 +55,19 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
 }) {
   return (
     <div className="segmented" role="group" aria-label={label}>
-      {options.map((option) => <button type="button" className={value === option.value ? 'active' : ''} onClick={() => onChange(option.value)} key={option.value}>{option.label}</button>)}
+      {options.map((option) => <button type="button" aria-pressed={value === option.value} className={value === option.value ? 'active' : ''} onClick={() => onChange(option.value)} key={option.value}>{option.label}</button>)}
     </div>
   )
 }
 
 export function Modal({ title, description, children, onClose, wide = false }: { title: string; description?: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
+  const dialog = useRef<HTMLElement>(null)
+  const titleId = useId()
+  useOverlayFocus(dialog, onClose)
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <section className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <header><div><h2 id="modal-title">{title}</h2>{description && <p>{description}</p>}</div><button className="icon-button close-button" onClick={onClose} aria-label="关闭">×</button></header>
+      <section ref={dialog} tabIndex={-1} className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <header><div><h2 id={titleId}>{title}</h2>{description && <p>{description}</p>}</div><button type="button" className="icon-button close-button" onClick={onClose} aria-label="关闭"><X /></button></header>
         {children}
       </section>
     </div>

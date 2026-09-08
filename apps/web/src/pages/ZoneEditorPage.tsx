@@ -74,7 +74,7 @@ export function ZoneEditorPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="区域编辑" title={`${camera.data.room_name} · ${camera.data.name}`} description="沿区域边缘依次点击，至少 3 个点；保存的是归一化坐标。" actions={<Link className="button secondary" to="/cameras"><ArrowLeft />返回摄像头</Link>} />
+      <PageHeader title={`${camera.data.room_name} · ${camera.data.name}`} description="沿区域边缘依次点击，至少 3 个点；保存的是归一化坐标。" actions={<Link className="button secondary" to="/cameras"><ArrowLeft />返回摄像头</Link>} />
       <div className="zone-editor-layout">
         <section className="zone-canvas-panel panel">
           <div className="zone-canvas-toolbar"><div><SourceBadge record={camera.data} /><span>{points.length ? `${points.length} 个顶点` : '点击画面开始描边'}</span></div><div><button className="icon-button" disabled={!points.length} title="撤销" onClick={() => { const last = points.at(-1); if (last) { setPoints((value) => value.slice(0, -1)); setRedo((value) => [...value, last]) } }}><Undo2 /></button><button className="icon-button" disabled={!redo.length} title="重做" onClick={() => { const last = redo.at(-1); if (last) { setPoints((value) => [...value, last]); setRedo((value) => value.slice(0, -1)) } }}><Redo2 /></button><button className="icon-button" title="刷新画面" onClick={() => { setNonce(Date.now()); setImageFailed(false) }}><ImageOff /></button></div></div>

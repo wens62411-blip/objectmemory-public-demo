@@ -343,27 +343,30 @@ export function PhotoRegistration({ item, onClose, onChanged }: { item: Item; on
     })
   }
 
+  const nextStep = !references.length ? 0 : confirmedCount < references.length ? 1 : profile?.registration_status !== 'ready' ? 2 : 3
+  const steps = ['添加照片', '确认目标', '建立档案', '现场测试']
   return <Modal title={`${item.name} · 照片与识别`} description="让照片真正参与本地识别；先确认目标，再用不同视角测试。" wide onClose={() => { if (!operation.current) onClose() }}>
     <div className="photo-registration" aria-busy={Boolean(busy)}>
-      <ol className="photo-registration-steps"><li>1 添加照片</li><li>2 确认目标</li><li>3 建立档案</li><li>4 现场测试</li></ol>
+      <ol className="photo-registration-steps">{steps.map((label, index) => <li key={label} aria-current={index === nextStep ? 'step' : undefined}><a href={`#registration-step-${index}`}>{index + 1} {label}</a></li>)}</ol>
+      {!loading && <p className="photo-notice">下一步：<a href={`#registration-step-${nextStep}`}>{steps[nextStep]}</a>。完成现场验证前，不会标记为识别成功。</p>}
       {loading && <Loading label="正在读取已保存的照片和识别档案…" />}
       {error && <p className="inline-error" role="alert">{error}</p>}
       {notice && <p className="photo-notice" role="status">{notice}</p>}
       {syncError && <div className="photo-sync-warning" role="alert"><p>{syncError}</p><button className="button secondary small" type="button" disabled={Boolean(busy)} onClick={() => { void run('正在重试读取…', syncSaved) }}>重试读取已保存资料</button></div>}
       {busy && <p className="photo-progress" role="status">{busy}完成前请保持此窗口打开。</p>}
-      <section className="registration-section"><header><div><p className="eyebrow">01 · 参考照片</p><h3>先给它一个清楚的近照</h3></div><Badge>{references.length} 张已保存 · {references.length - confirmedCount} 张待确认</Badge></header>
+      <section id="registration-step-0" className="registration-section"><header><div><p className="eyebrow">01 · 参考照片</p><h3>先给它一个清楚的近照</h3></div><Badge>{references.length} 张已保存 · {references.length - confirmedCount} 张待确认</Badge></header>
         <PhotoFilePicker files={files} onChange={setFiles} disabled={Boolean(busy) || loading} existingCount={references.length} />
         {files.length > 0 && <button type="button" className="button primary" disabled={Boolean(busy)} onClick={upload}><Upload />上传 {files.length} 张照片</button>}
         <div className="reference-camera-controls"><Field label="用于抓拍和测试的相机"><select value={cameraId} disabled={Boolean(busy) || loading} onChange={(event) => { setCameraId(event.target.value); setResult(null) }}><option value="">请选择相机</option>{cameras.map((value) => <option key={value.id} value={value.id}>{value.name} · {value.room_name || '未设房间'}</option>)}</select></Field><button type="button" className="button secondary" disabled={!cameraId || Boolean(busy) || loading || references.length >= MAX_PHOTOS} onClick={capture}><CameraIcon />从当前相机抓拍</button></div>
         <p className="photo-help">只读取已启动相机的当前帧，不会擅自打开摄像头。{camera && <SourceBadge record={camera} />} <Link to="/cameras" onClick={() => { if (!operation.current) onClose() }}>去摄像头页面检查连接</Link></p>
       </section>
-      <section className="registration-section"><header><div><p className="eyebrow">02 · 目标确认</p><h3>告诉物忆，照片里要认的是哪一件</h3></div><Badge tone={confirmedCount ? 'blue' : 'neutral'}>{confirmedCount} / {references.length} 张已确认</Badge></header>
+      <section id="registration-step-1" className="registration-section"><header><div><p className="eyebrow">02 · 目标确认</p><h3>告诉物忆，照片里要认的是哪一件</h3></div><Badge tone={confirmedCount ? 'blue' : 'neutral'}>{confirmedCount} / {references.length} 张已确认</Badge></header>
         {!references.length ? <p className="photo-empty">照片保存后，会在这里显示原图与建议框。上传不等于识别成功。</p> : <>
           <div className="reference-library" aria-label="已保存参考照片">{references.map((reference, index) => <div key={reference.id} className={reference.id === selected?.id ? 'selected' : ''}><button className="reference-select" type="button" aria-label={`选择参考照片 ${index + 1}`} aria-pressed={reference.id === selected?.id} disabled={Boolean(busy)} onClick={() => { if (reference.id === selected?.id) return; if (regionDirty && !window.confirm('当前框选尚未保存，放弃修改并切换照片？')) return; setRegionDirty(false); setSelectedId(reference.id) }}><img src={mediaUrl(reference.url || reference.path)} alt={`参考照片 ${index + 1}`} /><span>{reference.region_confirmed ? '已确认目标' : '待确认目标'}</span></button><button type="button" className="icon-button danger-icon" aria-label={`删除参考照片 ${index + 1}`} disabled={Boolean(busy)} onClick={() => remove(reference)}><Trash2 /></button></div>)}</div>
           {selected && <RegionEditor key={`${selected.id}:${JSON.stringify(selected.region)}:${selected.region_confirmed}`} reference={selected} disabled={Boolean(busy)} onConfirm={confirm} onDirtyChange={(dirty) => { setRegionDirty(dirty); if (dirty) setResult(null) }} />}
         </>}
       </section>
-      <section className="registration-section registration-profile"><header><div><p className="eyebrow">03 · 识别档案</p><h3>已保存 → 已建立 → 已启用，效果待验证</h3></div><Badge tone={profileIsLoaded(profile) ? 'blue' : profile?.registration_status === 'failed' ? 'danger' : 'neutral'}>{busy === '正在建立识别档案…' ? busy : profileStatusText(profile)}</Badge></header>
+      <section id="registration-step-2" className="registration-section registration-profile"><header><div><p className="eyebrow">03 · 识别档案</p><h3>已保存 → 已建立 → 已启用，效果待验证</h3></div><Badge tone={profileIsLoaded(profile) ? 'blue' : profile?.registration_status === 'failed' ? 'danger' : 'neutral'}>{busy === '正在建立识别档案…' ? busy : profileStatusText(profile)}</Badge></header>
         <ModelPreparationStatus profile={profile} />
         <dl className="recognition-metrics"><div><dt>档案版本</dt><dd>{profile?.profile_version ?? '待确认'}</dd></div><div><dt>后台加载版本</dt><dd>{profile?.loaded_profile_version ?? '尚未加载'}</dd></div><div><dt>有效参考照片</dt><dd>{profile?.ready_reference_count ?? '待确认'}</dd></div><div><dt>实时加载相机数</dt><dd>{profile?.loaded_camera_ids?.length ?? 0}</dd></div></dl>
         <p className="photo-help">模型：{profile?.model_id || '尚未就绪'} {profile?.model_version || ''}。新添、删图或重新框选后，需要更新档案；仅保存图片不会自动开启识别。</p>
@@ -376,7 +379,7 @@ export function PhotoRegistration({ item, onClose, onChanged }: { item: Item; on
         {profile?.registration_status === 'ready' && !profileIsLoaded(profile) && <p className="photo-help">档案已就绪，可现场测试；实时摄像头尚未加载当前档案，不表示已开始持续识别。</p>}
         {camera && <p className="photo-help" role="status">当前选择：{camera.name} · {profileIsLoaded(profile) && profile?.loaded_camera_ids?.includes(camera.id) ? '已启用当前档案，等待现场验证' : '尚未确认此相机启用当前档案'}。相机状态：{camera.health?.status || '暂未报告'}。档案状态会在页面可见时自动刷新。</p>}
       </section>
-      <section className="registration-section"><header><div><p className="eyebrow">04 · 现场测试</p><h3>换个视角，看看它能否认出来</h3></div></header><p className="photo-help">把物品放到选定相机前，与参考照片保持不同角度或拍摄时间。测试直接读取当前帧，不会把上传照片作为测试画面。本面板不将一次匹配直接写成位置事件，持续识别仍遵循后台证据规则。</p><button type="button" className="button primary" disabled={Boolean(busy) || loading || regionDirty || !cameraId || profile?.registration_status !== 'ready'} onClick={test}><ScanSearch />测试当前画面识别</button>{!cameraId && <p className="photo-help">请先选择一个已启动的相机。</p>}{result && <RecognitionComparison key={`${result.source_session_id}:${result.source_frame}`} item={item} reference={selected} result={result} camera={camera} />}</section>
+      <section id="registration-step-3" className="registration-section"><header><div><p className="eyebrow">04 · 现场测试</p><h3>换个视角，看看它能否认出来</h3></div></header><p className="photo-help">把物品放到选定相机前，与参考照片保持不同角度或拍摄时间。测试直接读取当前帧，不会把上传照片作为测试画面。本面板不将一次匹配直接写成位置事件，持续识别仍遵循后台证据规则。</p><button type="button" className="button primary" disabled={Boolean(busy) || loading || regionDirty || !cameraId || profile?.registration_status !== 'ready'} onClick={test}><ScanSearch />测试当前画面识别</button>{!cameraId && <p className="photo-help">请先选择一个已启动的相机。</p>}{result && <RecognitionComparison key={`${result.source_session_id}:${result.source_frame}`} item={item} reference={selected} result={result} camera={camera} />}</section>
     </div>
   </Modal>
 }

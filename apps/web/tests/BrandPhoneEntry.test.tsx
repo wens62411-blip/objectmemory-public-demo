@@ -47,7 +47,7 @@ describe('Mock 组件契约：品牌导航与手机入口（不是实机可达�
   it('连接手机指向设置扫码入口，诊断/验收保留在默认收起的高级工具', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ status: 'ok' })))
     const { container } = render(<MemoryRouter><AppShell /></MemoryRouter>)
-    expect(screen.getAllByRole('link', { name: /连接手机/ })).toHaveLength(2)
+    expect(screen.getAllByRole('link', { name: /连接手机/ })).toHaveLength(1)
     for (const link of screen.getAllByRole('link', { name: /连接手机/ })) expect(link).toHaveAttribute('href', '/settings#mobile-access')
     expect(container.querySelector('details.advanced-nav')).not.toHaveAttribute('open')
     expect(screen.getByRole('link', { name: '摄像头诊断' })).toHaveAttribute('href', '/camera-diagnostics')

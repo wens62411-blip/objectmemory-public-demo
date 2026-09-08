@@ -76,7 +76,7 @@ export function ScenePage() {
   const activeId = cameraId || cameras.data[0]?.id || ''
   const camera = cameras.data.find((value) => value.id === activeId)
   return <div className="scene-page">
-    <PageHeader eyebrow="家庭场景 · 物忆" title="从看见，到知道在哪里" description="视频中的同一件物品，连接它的最后观察与三维位置。家具由你确认尺寸；位置来自服务端证据，不会凭空推测。" />
+    <PageHeader title="从看见，到知道在哪里" description="视频中的同一件物品，连接它的最后观察与三维位置。家具由你确认尺寸；位置来自服务端证据，不会凭空推测。" />
     {cameras.loading ? <Loading /> : cameras.error ? <ErrorState message={cameras.error} onRetry={cameras.reload} /> : !camera ? <EmptyState icon={<CameraIcon />} title="先连接一个摄像头" description="没有视频源时，不会生成场景、家具或物品位置。" action={<Link className="button primary" to="/cameras">连接摄像头</Link>} /> : <>
       <div className="scene-camera-picker"><Field label="选择场景摄像头"><select value={activeId} onChange={(event) => {
         if (dirty && !window.confirm('尚有未保存的区域修改。切换摄像头并放弃这些修改？')) return

@@ -1,5 +1,5 @@
 import { ArrowRight, Camera, CheckCircle2, Clock3, Cpu, PackageSearch, Play, Plus, Radio, ScanLine, Sparkles, Video } from 'lucide-react'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useApi, usePolling } from '../hooks/useApi'
 import { api } from '../lib/api'
@@ -12,8 +12,11 @@ import { EventProvenance, SourceBadge } from '../components/ProvenanceBadge'
 import { useRuntime } from '../contexts/RuntimeContext'
 import { evidenceBadge } from '../lib/provenance'
 
+const ExamplePreview = lazy(() => import('../components/ExamplePreview'))
+
 export function DashboardPage() {
   const [query, setQuery] = useState('')
+  const [example, setExample] = useState(false)
   const [seeding, setSeeding] = useState(false)
   const navigate = useNavigate()
   const { notify } = useToast()
@@ -26,6 +29,13 @@ export function DashboardPage() {
   const virtual = usePolling<{ running?: boolean; backend_online?: boolean; source?: string }>(runtime.mode === 'DEMO' ? '/api/virtual-device/status' : null, {}, 5000)
   const stats = health.data?.stats || {}
   const demoMode = runtime.mode === 'DEMO'
+  const firstUse = runtime.mode === 'REAL' && !cameras.loading && !items.loading && !events.loading && !cameras.error && !items.error && !events.error && events.data.length === 0
+  const nextStep = cameras.data.length === 0 ? 0 : items.data.length === 0 ? 1 : 2
+  const setupSteps = [
+    { title: '连接摄像头', text: cameras.data.length ? '已添加，可查看连接状态' : '先连接电脑、手机或已有摄像头', to: '/cameras?add=1', ready: cameras.data.length > 0 },
+    { title: '添加物品照片', text: items.data.length ? '已添加，可继续完善照片' : '给手机、钥匙或钱包拍张照片', to: '/items?add=1', ready: items.data.length > 0 },
+    { title: '完成首次识别', text: '确认照片目标、建立档案，再到镜头前验证', to: '/items', ready: false },
+  ]
 
   async function seedDemo() {
     if (!demoMode) return notify('演示种子只允许在 DEMO 模式创建。', 'danger')
@@ -43,26 +53,30 @@ export function DashboardPage() {
   return (
     <div className="dashboard-page">
       <section className="hero-panel">
-        <div className="hero-copy"><div className="hero-kicker"><Sparkles />让摄像头拥有物品记忆</div><h1>东西放哪了，<br /><em>问一句就知道。</em></h1><p>物忆自动记录手机、钥匙和钱包最后一次被看到、拿起或放下的位置。</p></div>
+        <div className="hero-copy"><div className="hero-kicker"><Sparkles />让摄像头拥有物品记忆</div><h1>{firstUse ? <>让物忆开始<br /><em>记住你的东西。</em></> : <>东西放哪了，<br /><em>查查最后看到的位置。</em></>}</h1><p>{firstUse ? '还没有位置记录。连接摄像头并添加物品后，就可以开始积累寻物线索；也可以先看看示例。' : '查找手机、钥匙和钱包最后被看到的位置，有可靠证据时再确认拿起或放下。'}</p></div>
+        {firstUse && <div className="onboarding-actions"><Link className="button primary" to={setupSteps[nextStep].to}>{['连接设备开始使用', '添加第一个物品', '验证物品识别'][nextStep]}<ArrowRight /></Link><button className="button secondary" onClick={() => setExample(true)}><Play />先看示例</button></div>}
         <SearchBox value={query} onChange={setQuery} onSubmit={search} placeholder="你在找什么？例如：我的手机在哪里" />
         <div className="suggestions"><span>试着问</span>{['我的手机在哪里', '钥匙放哪了', '钱包最后出现在哪'].map((text) => <button key={text} onClick={() => { setQuery(text); navigate(`/search?q=${encodeURIComponent(text)}`) }}>{text}</button>)}</div>
         <div className="privacy-line"><span className="status-dot online" />本地处理 · 家庭视频不会上传</div>
       </section>
 
+      {example && <Suspense fallback={<Loading label="正在打开示例…" />}><ExamplePreview onClose={() => setExample(false)} /></Suspense>}
+      {firstUse && <section className="panel setup-panel" aria-label="首次使用引导"><h2>完成这三步，开始留下寻物线索</h2><p>信息和照片已保存，不代表已经能识别；每一步都会保留进度。</p><ol className="onboarding-steps">{setupSteps.map((step, index) => <li key={step.title} aria-current={index === nextStep ? 'step' : undefined}><Link to={step.to}>{step.ready ? <CheckCircle2 /> : <span>{index + 1}</span>}{step.title}</Link><span>{step.text}</span></li>)}</ol></section>}
       {demoMode && <section className="no-hardware-mode panel" aria-label="无硬件演示状态">
         <div className="no-hardware-title"><Cpu /><div><p className="eyebrow">现场演示状态</p><h2>演示模式，当前事件不来自真实家庭摄像头</h2></div><Badge tone="warning">DEMO · 模拟数据隔离</Badge></div>
         <div className="no-hardware-facts"><div><Video /><span>视频来源</span><strong>测试视频或电脑摄像头</strong><small>当前：{virtual.data.source === 'webcam' ? '电脑摄像头' : '测试视频'}</small></div><div><Radio /><span>ESP32 状态</span><strong>虚拟设备</strong><small>{virtual.data.backend_online ? '已按真实协议在线' : virtual.data.running ? '正在注册或等待视频' : '尚未启动'}</small></div><div><CheckCircle2 /><span>固件状态</span><strong>{firmware.data.compile_passed ? firmware.data.physical_flash_performed ? '已编译，有历史真机刷写记录' : '已编译，未真机刷写' : '尚未完成有效编译'}</strong><small>{firmware.data.physical_flash_performed ? '检测到历史真机刷写证据' : '没有物理刷写记录'}</small></div></div>
         <Link className="button secondary small" to="/devices">打开设备中心查看证据 <ArrowRight /></Link>
       </section>}
 
-      <section className="metric-grid" aria-label="系统概览">
+      <details className="system-overview"><summary>查看系统概览与识别速度</summary><section className="metric-grid" aria-label="系统概览">
         <article><div className="metric-icon green"><Camera /></div><div><span>在线摄像头</span><strong>{stats.online_cameras ?? cameras.data.filter((item) => item.health?.status === 'ready').length}<small> / {stats.cameras ?? cameras.data.length}</small></strong></div><Link to="/live">查看画面 <ArrowRight /></Link></article>
         <article><div className="metric-icon blue"><PackageSearch /></div><div><span>已注册物品</span><strong>{stats.items ?? items.data.length}</strong></div><Link to="/items">管理物品 <ArrowRight /></Link></article>
         <article><div className="metric-icon coral"><Clock3 /></div><div><span>今日新事件</span><strong>{stats.today_events ?? 0}</strong></div><Link to="/events">查看时间线 <ArrowRight /></Link></article>
         <article><div className="metric-icon yellow"><Radio /></div><div><span>物品识别速度</span><strong>{stats.fps !== undefined ? Number(stats.fps).toFixed(1) : '—'}<small> FPS</small></strong></div><Link to="/live">画面帧率单独查看 <ArrowRight /></Link></article>
       </section>
 
-      <div className="dashboard-columns">
+      </details>
+      {(!firstUse || cameras.data.length > 0 || items.data.length > 0) && <div className="dashboard-columns">
         <section className="panel recent-panel">
           <div className="section-heading"><div><p className="eyebrow">物品动态</p><h2>最近发生了什么</h2></div><Link to="/events">全部记录 <ArrowRight /></Link></div>
           {events.loading ? <Loading /> : events.error ? <ErrorState message={events.error} onRetry={events.reload} /> : events.data.length === 0 ? (
@@ -80,7 +94,7 @@ export function DashboardPage() {
           <div className="section-heading"><div><p className="eyebrow">空间状态</p><h2>摄像头</h2></div><Link to="/cameras"><Plus />添加</Link></div>
           {cameras.loading ? <Loading /> : cameras.error ? <ErrorState message={cameras.error} onRetry={cameras.reload} /> : cameras.data.length === 0 ? <EmptyState icon={<Camera />} title="还没有摄像头" description={demoMode ? 'DEMO 模式可添加测试视频；REAL 模式只接受真实视频源。' : '添加电脑、浏览器或网络摄像头。'} action={<Link className="button primary small" to="/cameras?add=1">添加摄像头</Link>} /> : <div className="camera-mini-list">{cameras.data.slice(0, 4).map((camera) => <Link to={`/live?camera=${camera.id}`} key={camera.id}><span className={`status-dot ${camera.health?.status === 'ready' ? 'online' : ''}`} /><div><strong>{camera.name}</strong><span>{camera.room_name} · {sourceLabels[camera.source_type] || camera.source_type}</span><SourceBadge record={camera} /></div><Badge tone={statusTone(camera.health?.status) as 'success' | 'warning' | 'danger' | 'neutral'}>{camera.health?.status === 'ready' ? '在线' : camera.health?.status || '未启动'}</Badge></Link>)}</div>}
         </section>
-      </div>
+      </div>}
     </div>
   )
 }

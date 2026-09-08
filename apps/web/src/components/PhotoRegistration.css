@@ -87,3 +87,8 @@
   .registration-section > header .badge { white-space: normal; line-height: 1.6; }
   .reference-picker-actions .button { flex: 1; }
 }
+
+.registration-section { scroll-margin-top: 120px; }
+.photo-registration-steps a { display: block; padding: 6px; color: var(--muted); }
+.photo-registration-steps [aria-current="step"] a { color: var(--green); font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
+.photo-notice a { text-decoration: underline; text-underline-offset: 3px; }

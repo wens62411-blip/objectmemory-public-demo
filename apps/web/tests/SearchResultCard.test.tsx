@@ -21,7 +21,7 @@ describe('Mock 组件单测：寻找结果证据卡', () => {
     render(<MemoryRouter><ToastProvider><SearchPage /></ToastProvider></MemoryRouter>)
     expect(screen.getByText('最新可靠观察优先')).toBeInTheDocument()
     expect(screen.getByText('历史确认放置独立展示')).toBeInTheDocument()
-    expect(screen.getByText(/不替代更新的观察或未知状态/)).toBeInTheDocument()
+    expect(screen.getByText(/没有可靠记录时，物忆会明确告诉你/)).toBeInTheDocument()
     expect(screen.queryByText('最后确认放置优先')).not.toBeInTheDocument()
   })
   it('没有位置证据时独立显示后台观察提示，不把提示升级成识别成功或位置', () => {

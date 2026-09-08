@@ -154,8 +154,11 @@ export function VoiceSearch({ onQuestion, disabled = false, evidenceScope = '' }
       <span role="status">{{ idle: '未监听', preparing: '检查语音能力…', listening: '正在聆听', answering: '正在查找', speaking: '正在回答' }[phase]}</span>
       {answer && phase === 'idle' && <button className="button ghost small" onClick={() => speak(answer)}><Volume2 />朗读回答</button>}
     </div>
-    <p id="voice-privacy" className="voice-search-privacy">只在你点击后开启麦克风；一句提问结束即关闭，不在物忆保存录音。优先使用浏览器已安装的本地中文识别。联网模式可能将音频及朗读文本交给浏览器厂商的服务，不是完全离线。</p>
+    <p id="voice-privacy" className="voice-search-privacy">点击才录音，提问后停止；默认仅使用本地语音。</p>
+    <details className="voice-search-settings" open={notice.includes('可勾选允许浏览器联网') || undefined}><summary>语音设置与隐私说明</summary>
+    <p className="voice-search-privacy">只在你点击后开启麦克风；一句提问结束即关闭，不在物忆保存录音。优先使用浏览器已安装的本地中文识别。联网模式可能将音频及朗读文本交给浏览器厂商的服务，不是完全离线。</p>
     <div className="voice-search-options"><label><input type="checkbox" checked={allowNetwork} disabled={phase !== 'idle'} onChange={event => setAllowNetwork(event.target.checked)} />允许浏览器联网语音（可选）</label><label><input type="checkbox" checked={readAloud} disabled={phase !== 'idle'} onChange={event => setReadAloud(event.target.checked)} />语音提问后朗读回答</label></div>
+    </details>
     {!supported && <p className="voice-search-notice">{window.isSecureContext === false ? '当前地址不是安全连接，麦克风功能不可用。请使用本机 localhost 或已配置的 HTTPS；仍可直接输入查询。' : '当前浏览器不支持语音识别，文字查询仍可使用。'}</p>}
     {transcript && <p className="voice-search-transcript">听到：{transcript}</p>}
     {notice && <p className="voice-search-notice" role="status">{notice}</p>}

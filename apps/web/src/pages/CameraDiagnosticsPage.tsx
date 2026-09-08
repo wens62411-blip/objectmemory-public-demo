@@ -169,7 +169,7 @@ export function CameraDiagnosticsPage() {
   const owner = useMemo(() => displayOwner(diagnostics.data.owners || report.manager), [diagnostics.data.owners, report.manager])
 
   return <div>
-    <PageHeader eyebrow="摄像头诊断" title="找到画面断在哪一层" description="快速刷新只读现有状态；实际探测和完整视频链路分别执行，不重复打开正在使用的镜头。" actions={<button className="button primary" disabled={diagnostics.loading} onClick={() => void diagnostics.reload()}><RefreshCw />快速刷新状态</button>} />
+    <PageHeader title="找到画面断在哪一层" description="快速刷新只读现有状态；实际探测和完整视频链路分别执行，不重复打开正在使用的镜头。" actions={<button className="button primary" disabled={diagnostics.loading} onClick={() => void diagnostics.reload()}><RefreshCw />快速刷新状态</button>} />
 
     {runtime.error && <div className="backend-offline-banner"><WifiOff /><div><strong>后端未连接</strong><span>{runtime.error}。摄像头测试已暂停，先确认启动窗口中的端口和错误日志。</span></div></div>}
     {runtimeMode(config) === 'DEMO' && <div className="inline-banner info"><AlertTriangle />当前为 DEMO 模式。电脑摄像头诊断可读取真实本机设备，但该进程产生的事件仍属于隔离的模拟数据；虚拟 ESP32 不会算作真机。</div>}

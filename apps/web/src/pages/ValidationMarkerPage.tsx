@@ -1,3 +1,4 @@
+import './PhysicalAcceptance.css'
 import {
   AlertTriangle,
   Camera,
