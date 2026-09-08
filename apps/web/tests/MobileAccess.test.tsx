@@ -38,9 +38,10 @@ describe('手机入口：真实二维码生成与安全链接契约（非手机�
     const svg = screen.getByRole('img', { name: '用手机打开 Marker 页的二维码' })
     const size = Number(svg.getAttribute('viewBox')?.split(' ')[2])
     const path = svg.querySelector('path')?.getAttribute('d')
-    const probe = spawnSync(resolve('../..', '.venv/Scripts/python.exe'), ['-B', '-c',
+    const probe = spawnSync(process.env.OM_E2E_PYTHON || resolve('../..', '.venv/Scripts/python.exe'), ['-B', '-c',
       'import sys,json,re,cv2,numpy as np; p=json.load(sys.stdin); a=np.full((p["size"],p["size"]),255,np.uint8); points=re.findall(r"M(\\d+) (\\d+)h1v1h-1z",p["path"]); [(a.__setitem__((int(y),int(x)),0)) for x,y in points]; a=cv2.resize(a,None,fx=8,fy=8,interpolation=cv2.INTER_NEAREST); print(cv2.QRCodeDetector().detectAndDecode(a)[0])'],
     { input: JSON.stringify({ size, path }), encoding: 'utf8', timeout: 15_000 })
+    expect(probe.error, probe.error?.message).toBeUndefined()
     expect(probe.status, probe.stderr).toBe(0)
     expect(probe.stdout.trim()).toBe(url)
   })

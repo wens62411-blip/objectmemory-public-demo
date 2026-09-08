@@ -205,14 +205,38 @@ class Database:
         return tuple(row)
 
     def save(self, table: str, data: dict[str, Any], record_id: str | None = None):
+        return self.save_many([(table, data, record_id)])[0]
+
+    def save_many(self, records: Iterable[tuple[str, dict[str, Any], str | None]]):
+        """Commit related rows together, including their returned snapshots.
+
+        Materialize once so lock retries neither consume an iterator twice nor
+        generate new identifiers. Reads/decode happen before the commit: a caller
+        can safely remove newly staged files when this operation raises.
+        """
+        statements = [self._save_statement(table, data, record_id) for table, data, record_id in records]
+        if not statements:
+            return []
+
+        def operation():
+            result = []
+            with self.connect() as conn:
+                for table, record_id, sql, values in statements:
+                    conn.execute(sql, values)
+                    result.append(self._decode(table, conn.execute(
+                        f'SELECT * FROM "{table}" WHERE id=?', [record_id]).fetchone()))
+            return result
+
+        return self._run_retry(operation)
+
+    def _save_statement(self, table, data, record_id=None):
         table = self.table(table)
         record_id = str(record_id or data.get("id") or uuid4().hex)
         stamp = now()
         insert = {"id": record_id, "created_at": stamp, "updated_at": stamp, **self._encode(table, data)}
         update_keys = [key for key in insert if key not in {"id", "created_at"}]
         sql = f'INSERT INTO "{table}" (' + ",".join(f'"{key}"' for key in insert) + ") VALUES (" + ",".join("?" for _ in insert) + ") " + 'ON CONFLICT("id") DO UPDATE SET ' + ",".join(f'"{key}"=excluded."{key}"' for key in update_keys)
-        self._run_retry(lambda: self._execute(sql, list(insert.values())))
-        return self.get(table, record_id, unscoped=True)
+        return table, record_id, sql, list(insert.values())
 
     def save_current_state_if_newer(self, data: dict[str, Any], record_id: str, *, observation_media: dict | None = None, expected_profile: dict | None = None):
         """Upsert an observation without allowing delayed callbacks to rewind state.

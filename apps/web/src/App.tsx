@@ -1,10 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, useCallback, useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { api, ApiError } from './lib/api'
 import { ToastProvider } from './components/Toast'
 import { AppShell } from './components/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
-import { Loading } from './components/UI'
+import { PageBoundary } from './components/PageBoundary'
 import { RuntimeProvider } from './contexts/RuntimeContext'
 import { LoaderCircle, LockKeyhole, RefreshCw, WifiOff } from 'lucide-react'
 import { Brand, BrandMark } from './components/Brand'
@@ -79,7 +79,7 @@ export function App() {
     <ToastProvider>
       <SessionGate>
         <RuntimeProvider>
-          <Suspense fallback={<Loading label="正在加载页面…" />}>
+          <PageBoundary>
             <Routes>
               <Route path="/companion" element={<CompanionPage />} />
               <Route path="/companion/validation-marker" element={<ValidationMarkerPage />} />
@@ -89,7 +89,7 @@ export function App() {
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
-          </Suspense>
+          </PageBoundary>
         </RuntimeProvider>
       </SessionGate>
     </ToastProvider>

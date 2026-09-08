@@ -93,3 +93,46 @@ def test_bulk_delete_lock_retry_replays_generator_after_rollback(db, monkeypatch
     assert db.delete_many('events', iter(['real', 'demo']), unscoped=True) == 2
     assert attempts == 2
     assert db.count('events', unscoped=True) == 2
+
+
+def test_save_many_rolls_back_cross_table_batch_and_preserves_existing_rows(db):
+    db.save('items', {'name': 'original'}, 'existing')
+    with db.connect() as conn:
+        conn.execute("""CREATE TRIGGER reject_profile BEFORE INSERT ON item_recognition_profiles
+            BEGIN SELECT RAISE(ABORT, 'controlled batch failure'); END""")
+    with pytest.raises(sqlite3.IntegrityError, match='controlled batch failure'):
+        db.save_many(iter([
+            ('items', {'name': 'changed'}, 'existing'),
+            ('item_reference_images', {'item_id': 'existing'}, 'new-reference'),
+            ('item_recognition_profiles', {'item_id': 'existing'}, 'existing'),
+        ]))
+    assert db.get('items', 'existing')['name'] == 'original'
+    assert db.count('item_reference_images') == 0
+
+
+def test_save_many_keeps_aliases_schema_filtering_defaults_and_lock_retries(db, monkeypatch):
+    original_connect = db.connect
+    attempts = 0
+
+    @contextmanager
+    def temporarily_locked():
+        nonlocal attempts
+        attempts += 1
+        with original_connect() as conn:
+            yield conn
+            if attempts == 1:
+                raise sqlite3.OperationalError('database is locked')
+
+    monkeypatch.setattr(db, 'connect', temporarily_locked)
+    rows = db.save_many(iter([
+        ('events', {'source_type': 'opencv_camera', 'is_simulated': False,
+                    'trajectory': [{'x': 1}], 'not_a_column': 'ignored'}, 'saved'),
+        ('items', {'name': 'new item', 'unknown_field': True}, None),
+    ]))
+    assert attempts == 2
+    assert rows[0]['runtime_mode'] == 'REAL' and rows[0]['trajectory'] == [{'x': 1}]
+    assert rows[0]['is_simulated'] is False and rows[0]['id'] == 'saved'
+    assert rows[1]['id'] and rows[1]['name'] == 'new item'
+    assert 'not_a_column' not in rows[0] and 'unknown_field' not in rows[1]
+    assert db.count('items') == 1
+    assert db.save_many([]) == []

@@ -4,6 +4,7 @@ Artificial textures test storage/crop/version invariants, not physical identity.
 """
 import hashlib
 import io
+import sqlite3
 import weakref
 from pathlib import Path
 
@@ -112,9 +113,10 @@ def test_service_batch_validates_all_photos_before_writing(client):
     assert not list(service.folder.iterdir())
 
 
-def test_batch_write_failure_cleans_incomplete_photo_and_preserves_saved_photos(client, monkeypatch):
+def test_batch_write_failure_rolls_back_new_photos_and_preserves_existing_photos(client, monkeypatch):
     service = client.app.state.runtime.registration
     item_id = register_item(client)
+    service.add(item_id, png(4))
     write = service._write
     displays = 0
 
@@ -128,7 +130,7 @@ def test_batch_write_failure_cleans_incomplete_photo_and_preserves_saved_photos(
 
     monkeypatch.setattr(service, '_write', fail_second_display)
     with pytest.raises(OSError, match='controlled display write failure'):
-        service.add_batch(item_id, [png(4), png(5)])
+        service.add_batch(item_id, [png(5), png(6)])
     references = service.db.list('item_reference_images')
     assert len(references) == 1
     assert service._path(references[0]['original_path']).read_bytes() == png(4)
@@ -136,6 +138,64 @@ def test_batch_write_failure_cleans_incomplete_photo_and_preserves_saved_photos(
         Path(references[0]['original_path']).name, Path(references[0]['path']).name,
     }
     assert service.profile(item_id)['profile_version'] == 1
+
+
+def test_profile_write_failure_cannot_leave_a_reference_to_deleted_photos(client):
+    service = client.app.state.runtime.registration
+    item_id = register_item(client)
+    service.db.save('item_recognition_profiles', {
+        'item_id': item_id, 'profile_version': 1, 'status': 'ready',
+        'embeddings': [[1.0]], 'reference_ids': [],
+    }, item_id)
+    with service.db.connect() as conn:
+        conn.execute("""CREATE TRIGGER reject_profile_update
+            BEFORE UPDATE ON item_recognition_profiles
+            BEGIN SELECT RAISE(ABORT, 'controlled profile failure'); END""")
+    with pytest.raises(sqlite3.IntegrityError, match='controlled profile failure'):
+        service.add_batch(item_id, [png()])
+    assert service.db.count('item_reference_images') == 0
+    assert not list(service.folder.iterdir())
+    assert service.db.get('item_recognition_profiles', item_id)['status'] == 'ready'
+
+
+def test_reference_write_failure_rolls_back_media_and_preserves_existing_profile(client):
+    service = client.app.state.runtime.registration
+    item_id = register_item(client)
+    service.db.save('item_recognition_profiles', {
+        'item_id': item_id, 'profile_version': 1, 'status': 'ready',
+        'embeddings': [[1.0]], 'reference_ids': [],
+    }, item_id)
+    with service.db.connect() as conn:
+        conn.execute("""CREATE TRIGGER reject_reference_insert
+            BEFORE INSERT ON item_reference_images
+            BEGIN SELECT RAISE(ABORT, 'controlled reference failure'); END""")
+    with pytest.raises(sqlite3.IntegrityError, match='controlled reference failure'):
+        service.add_batch(item_id, [png()])
+    assert service.db.count('item_reference_images') == 0
+    assert not list(service.folder.iterdir())
+    profile = service.db.get('item_recognition_profiles', item_id)
+    assert profile['status'] == 'ready' and profile['embeddings'] == [[1.0]]
+
+
+@pytest.mark.parametrize('failure_index', [1, 2])
+def test_later_reference_database_failure_rolls_back_entire_batch(client, failure_index):
+    service = client.app.state.runtime.registration
+    item_id = register_item(client)
+    existing = service.add(item_id, png(4))
+    existing_files = {path.name: path.read_bytes() for path in service.folder.iterdir()}
+    original_profile = service.db.get('item_recognition_profiles', item_id)
+    contents = [png(5), png(6), png(7)]
+    digest = hashlib.sha256(contents[failure_index]).hexdigest()
+    with service.db.connect() as conn:
+        # The digest is locally computed hex, never request-supplied SQL.
+        conn.execute(f"""CREATE TRIGGER reject_later_reference BEFORE INSERT ON item_reference_images
+            WHEN NEW.sha256='{digest}'
+            BEGIN SELECT RAISE(ABORT, 'controlled later reference failure'); END""")
+    with pytest.raises(sqlite3.IntegrityError, match='controlled later reference failure'):
+        service.add_batch(item_id, contents)
+    assert [row['id'] for row in service.db.list('item_reference_images')] == [existing['id']]
+    assert {path.name: path.read_bytes() for path in service.folder.iterdir()} == existing_files
+    assert service.db.get('item_recognition_profiles', item_id) == original_profile
 
 
 def test_crop_requires_explicit_valid_target_and_wrong_item_cannot_edit(client):

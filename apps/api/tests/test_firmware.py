@@ -360,7 +360,7 @@ def test_old_non_simulated_device_migrates_to_unverified(tmp_path):
 
 def test_real_camera_api_cannot_self_assert_esp32_hardware(tmp_path):
     app = create_app(data_dir=tmp_path / "data", runtime_mode="REAL")
-    with TestClient(app) as client:
+    with TestClient(app, base_url='http://127.0.0.1') as client:
         client.cookies.set("om_session", app.state.runtime.sessions.issue())
         response = client.post("/api/cameras", json={
             "name": "伪造 ESP32", "room_name": "客厅", "source_type": "esp32",
@@ -399,7 +399,7 @@ def test_real_camera_api_cannot_self_assert_esp32_hardware(tmp_path):
 
 def test_real_network_claim_api_creates_only_unverified_device_not_camera(tmp_path):
     app = create_app(data_dir=tmp_path / "data", runtime_mode="REAL")
-    with TestClient(app) as client:
+    with TestClient(app, base_url='http://127.0.0.1') as client:
         client.cookies.set("om_session", app.state.runtime.sessions.issue())
         enrollment = client.post("/api/device-enrollment/create", json={
             "device_name": "网络自报设备", "room_name": "客厅",

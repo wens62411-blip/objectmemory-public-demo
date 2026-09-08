@@ -153,33 +153,49 @@ class RegistrationService:
                 suggestions, suggestion_error = self._suggest(frame)
                 prepared[digest] = (display_bytes, frame.shape[:2], suggestions, suggestion_error)
                 del frame
-            result = []
-            for digest, content in zip(digests, contents):
-                if digest in by_digest:
-                    result.append({**self.public_reference(by_digest[digest]), 'duplicate': True})
-                    continue
-                display_bytes, (height, width), suggestions, suggestion_error = prepared.pop(digest)
-                reference_id = uuid4().hex
-                original = self._write(f'{reference_id}-original' + ('.png' if content.startswith(b'\x89PNG') else '.jpg'), content)
-                display = None
-                try:
+            staged_paths, records = [], []
+            try:
+                for digest, (display_bytes, (height, width), suggestions, suggestion_error) in prepared.items():
+                    content = incoming[digest]
+                    reference_id = uuid4().hex
+                    original = self._write(f'{reference_id}-original' + ('.png' if content.startswith(b'\x89PNG') else '.jpg'), content)
+                    staged_paths.append(original)
                     display = self._write(f'{reference_id}-display.jpg', display_bytes)
-                    row = self.db.save('item_reference_images', {
+                    staged_paths.append(display)
+                    records.append(('item_reference_images', {
                         'item_id': item_id, 'path': display, 'original_path': original,
                         'sha256': digest, 'width': width, 'height': height,
                         'features': None, 'region': None, 'region_confirmed': False,
                         'suggested_regions': suggestions, 'status': 'image_saved', 'crop_path': None,
                         'capture_source': capture_source,
                         'quality': {'suggestion_error': suggestion_error, 'target_confirmation_required': True},
-                    }, reference_id)
-                    self.invalidate(item_id)
-                    by_digest[digest] = row
-                    result.append(self.public_reference(row))
-                except Exception:
-                    for url in (original, display):
-                        if url:
-                            self._path(url).unlink(missing_ok=True)
-                    raise
+                    }, reference_id))
+                if records:
+                    previous = self.db.get('item_recognition_profiles', item_id) or {}
+                    records.append(('item_recognition_profiles', {
+                        'item_id': item_id,
+                        'profile_version': int(previous.get('profile_version') or 0) + len(records),
+                        'status': 'images_saved', 'embeddings': [], 'reference_ids': [],
+                        'dimension': None, 'error': None,
+                    }, item_id))
+                    # References and profile invalidation are one transaction;
+                    # a failed batch must not report an error after partial save.
+                    saved = self.db.save_many(records)
+            except Exception:
+                for url in staged_paths:
+                    self._path(url).unlink(missing_ok=True)
+                raise
+            if records:
+                self._loaded_versions.pop(item_id, None)
+                self._matcher = None
+            result = []
+            new_rows = {row['sha256']: row for row in saved[:-1]} if records else {}
+            for digest in digests:
+                if digest in by_digest:
+                    result.append({**self.public_reference(by_digest[digest]), 'duplicate': True})
+                else:
+                    by_digest[digest] = new_rows[digest]
+                    result.append(self.public_reference(by_digest[digest]))
             return result
 
     @staticmethod

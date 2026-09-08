@@ -73,9 +73,20 @@ def test_media_writer_creates_real_image_and_playable_clip(tmp_path, strided):
     assert image and image.is_file() and image.stat().st_size > 100
     assert clip.path and clip.path.is_file() and clip.frame_count == 8
     capture = cv2.VideoCapture(str(clip.path))
-    ok, decoded = capture.read()
-    capture.release()
-    assert ok and decoded is not None
+    decoded_centers = []
+    try:
+        while True:
+            ok, decoded = capture.read()
+            if not ok:
+                break
+            assert decoded is not None and decoded.shape == (120, 160, 3)
+            # Verify every encoded frame and its order, not merely a playable header.
+            moving_pixels = (decoded[:, :, 2].astype(int) - decoded[:, :, 0].astype(int)) > 100
+            assert moving_pixels.any()
+            decoded_centers.append(float(np.where(moving_pixels)[1].mean()))
+    finally:
+        capture.release()
+    np.testing.assert_allclose(decoded_centers, [20 + index * 12 for index in range(8)], atol=2)
     assert writer.sha256(image)
     assert clip.sha256 == writer.sha256(clip.path)
     for frame, original in zip(frames, originals):

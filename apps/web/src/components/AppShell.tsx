@@ -1,9 +1,10 @@
 import { Activity, Camera, ChevronDown, Clock3, Cpu, Database, House, Map, Menu, PackageSearch, Radio, ScanLine, Search, Settings, Smartphone, X } from 'lucide-react'
-import { Suspense, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useOutletContext } from 'react-router-dom'
 import { usePolling } from '../hooks/useApi'
 import type { HealthResponse } from '../types'
-import { Badge, Loading } from './UI'
+import { Badge } from './UI'
+import { PageBoundary } from './PageBoundary'
 import { useRuntime } from '../contexts/RuntimeContext'
 import { RuntimeModeBanner } from './RuntimeModeBanner'
 import { Brand } from './Brand'
@@ -66,7 +67,7 @@ export function AppShell() {
           <Link className="topbar-phone-link" to="/settings#mobile-access"><Smartphone />连接手机</Link>
           <div className="topbar-status" data-runtime-mode={runtime.mode}><Badge tone={runtime.mode === 'REAL' ? 'success' : runtime.mode === 'UNKNOWN' ? 'danger' : 'warning'}>{runtime.mode === 'REAL' ? 'REAL · 真实模式' : runtime.mode}</Badge><Badge tone={health ? 'success' : 'warning'}>{health ? '本地处理' : '后端未连接'}</Badge><span>{health?.version ? `v${health.version}` : '家庭视频留在本机'}</span></div>
         </header>
-        <main id="main-content" className="page-content" tabIndex={-1}><Suspense fallback={<Loading label="正在加载页面…" />}><Outlet context={healthState} /></Suspense></main>
+        <main id="main-content" className="page-content" tabIndex={-1}><PageBoundary><Outlet context={healthState} /></PageBoundary></main>
       </div>
       <nav className="mobile-nav" aria-label="移动端主导航">
         {navigation.slice(0, 4).map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => isActive ? 'active' : ''}><Icon /><span>{label}</span></NavLink>)}

@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const projectRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
+const python = process.env.OM_E2E_PYTHON || resolve(projectRoot, '.venv', 'Scripts', 'python.exe')
 const isolatedData = resolve(projectRoot, 'data', 'temporary', `playwright-real-${process.pid}-${Date.now()}`)
 const shutdownFile = resolve(isolatedData, '.shutdown-request')
 const shutdownAckFile = resolve(isolatedData, '.shutdown-complete')
@@ -23,7 +24,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: `.venv\\Scripts\\python.exe scripts\\serve.py --port 8029 --mode REAL --no-browser --shutdown-file "${shutdownFile}" --shutdown-ack-file "${shutdownAckFile}"`,
+    command: `"${python}" scripts\\serve.py --port 8029 --mode REAL --no-browser --shutdown-file "${shutdownFile}" --shutdown-ack-file "${shutdownAckFile}"`,
     cwd: projectRoot,
     env: { OM_DATA_DIR: isolatedData, OM_E2E_DATA_DIR: isolatedData, OM_PORT: '8029', OM_RUNTIME_MODE: 'REAL', OM_RUN_MODE: 'REAL' },
     url: 'http://127.0.0.1:8029/api/health',
