@@ -20,7 +20,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Badge, PageHeader } from '../components/UI'
 import { MobileAccess, safeMobileUrl } from '../components/MobileAccess'
-import { acceptanceApi, api, mediaUrl } from '../lib/api'
+import { acceptanceApi, api, mediaUrl, queryString } from '../lib/api'
+import { usePolling } from '../hooks/useApi'
+import { useVisiblePolling } from '../hooks/useVisiblePolling'
 import type {
   AcceptanceCamera,
   AcceptanceMarkerStatus,
@@ -248,7 +250,6 @@ function backendCameras(preflight: AcceptancePreflight | null): AcceptanceCamera
 export function RealMovementAcceptancePage() {
   const [params, setParams] = useSearchParams()
   const initialSuiteId = useMemo(() => (params.get('suite') || '').trim(), [])
-  const [preflight, setPreflight] = useState<AcceptancePreflight | null>(null)
   const [preflightError, setPreflightError] = useState('')
   const [cameraInventory, setCameraInventory] = useState<CameraRecord[]>([])
   const [items, setItems] = useState<Item[]>([])
@@ -260,8 +261,6 @@ export function RealMovementAcceptancePage() {
   const [draft, setDraft] = useState<AcceptanceRegion | null>(null)
   const [regionError, setRegionError] = useState('')
   const [setupStep, setSetupStep] = useState(0)
-  const [markerStatus, setMarkerStatus] = useState<AcceptanceMarkerStatus | null>(null)
-  const [markerError, setMarkerError] = useState('')
   const [suiteId, setSuiteId] = useState(initialSuiteId)
   const [suite, setSuite] = useState<AcceptanceSuite | null>(null)
   const [suiteLoading, setSuiteLoading] = useState(Boolean(initialSuiteId))
@@ -277,29 +276,17 @@ export function RealMovementAcceptancePage() {
   )
   const currentRun = orderedRuns.at(-1) || null
   const currentRunId = runId(currentRun)
+  const preflightRead = usePolling<AcceptancePreflight | null>(cameraId ? `/api/acceptance/preflight${queryString({ camera_id: cameraId })}` : null, null, 5000)
+  const preflight = preflightRead.error ? null : preflightRead.data
+  const refreshPreflight = preflightRead.reload
+  const markerRead = usePolling<AcceptanceMarkerStatus | null>(itemId && cameraId ? `/api/acceptance/marker-status${queryString({ validation_run_id: currentRunId, item_id: itemId, camera_id: cameraId })}` : null, null, 1500)
+  const markerStatus = markerRead.error ? null : markerRead.data
 
   useEffect(() => {
     const next = suiteId ? new URLSearchParams({ suite: suiteId }) : new URLSearchParams(params)
     next.delete('runs'); next.delete('current')
     if (next.toString() !== params.toString()) setParams(next, { replace: true })
   }, [params, setParams, suiteId])
-
-  const refreshPreflight = useCallback(async () => {
-    if (!cameraId) { setPreflight(null); return }
-    try {
-      const value = await acceptanceApi.preflight(cameraId)
-      setPreflight(value); setPreflightError('')
-    } catch (error) {
-      setPreflight(null)
-      setPreflightError(error instanceof Error ? error.message : '无法读取真实模式预检')
-    }
-  }, [cameraId])
-
-  useEffect(() => {
-    void refreshPreflight()
-    const timer = window.setInterval(() => void refreshPreflight(), 5000)
-    return () => window.clearInterval(timer)
-  }, [refreshPreflight])
 
   useEffect(() => {
     let cancelled = false
@@ -359,27 +346,6 @@ export function RealMovementAcceptancePage() {
     return () => { cancelled = true }
   }, [cameraId, zoneIds.A, zoneIds.B])
 
-  useEffect(() => {
-    setMarkerStatus(null)
-    setMarkerError('')
-    if (!itemId || !cameraId) return
-    let cancelled = false
-    let request = 0
-    const load = () => {
-      const currentRequest = ++request
-      return acceptanceApi.markerStatus({ validationRunId: currentRunId || undefined, itemId, cameraId }).then((value) => {
-        if (!cancelled && currentRequest === request) { setMarkerStatus(value); setMarkerError('') }
-      }).catch((error) => {
-        if (!cancelled && currentRequest === request) {
-          setMarkerStatus(null)
-          setMarkerError(error instanceof Error ? error.message : '识别状态暂时不可用')
-        }
-      })
-    }
-    void load(); const timer = window.setInterval(() => void load(), 1500)
-    return () => { cancelled = true; window.clearInterval(timer) }
-  }, [cameraId, currentRunId, itemId])
-
   const applySuite = useCallback((value: AcceptanceSuite) => {
     const id = String(value?.id || '')
     if (!id || value.suite_id !== id || !Array.isArray(value.runs) || !Array.isArray(value.contract) || !value.zone_a || !value.zone_b || !value.summary) throw new Error('后端验收套件身份或结构不一致，页面已拒绝加载。')
@@ -423,11 +389,7 @@ export function RealMovementAcceptancePage() {
     return () => { cancelled = true; if (timer !== undefined) window.clearInterval(timer) }
   }, [applySuite, currentRun?.status, suite?.id, suiteId]) // Restore and live state both come from one server-owned suite.
 
-  useEffect(() => {
-    if (!cameraId) return
-    const timer = window.setInterval(() => setFrameNonce(Date.now()), 1600)
-    return () => window.clearInterval(timer)
-  }, [cameraId])
+  useVisiblePolling(async () => { setFrameNonce(Date.now()) }, { enabled: Boolean(cameraId), intervalMs: 1600, resetKey: cameraId })
 
   const preflightReady = preflight?.ready === true
     && String(preflight.runtime_mode || selectedCamera?.runtime_mode || '').toUpperCase() === 'REAL'
@@ -658,7 +620,7 @@ export function RealMovementAcceptancePage() {
         <div className={(selectedCamera?.is_simulated ?? preflight?.is_simulated) === false ? 'passed' : 'blocked'}><span>模拟数据</span><strong>{(selectedCamera?.is_simulated ?? preflight?.is_simulated) === false ? '未使用' : '未排除'}</strong></div>
         <div className={preflight?.ready === true ? 'passed' : 'blocked'}><span>后端预检</span><strong>{preflight?.ready === true ? '可以开始' : '尚未通过'}</strong></div>
       </div>
-      {preflightError && <div className="acceptance-callout danger"><AlertTriangle /><span>{preflightError}</span></div>}
+      {(preflightError || preflightRead.error) && <div className="acceptance-callout danger"><AlertTriangle /><span>{preflightError || preflightRead.error}</span></div>}
       {!preflightReady && <div className="acceptance-callout warning"><ShieldAlert /><div><strong>当前不能作为真实验收</strong><span>{preflight?.message || '请切换 REAL 模式，并在摄像头页启动 source_type=opencv_camera 的本机摄像头。'}</span>{preflight?.blockers?.map((blocker) => <small key={blocker}>• {blocker}</small>)}</div></div>}
       <label className="field"><span className="field-label">用于验收的摄像头</span><select aria-label="用于验收的摄像头" value={cameraId} onChange={(event) => { setCameraId(event.target.value); setZoneIds({ A: '', B: '' }) }}><option value="">选择后端确认的摄像头</option>{cameras.map((camera) => <option key={camera.id} value={camera.id}>{camera.name || camera.id} · {camera.source_type || '来源未知'}</option>)}</select></label>
       <div className="acceptance-setup-footer"><Link className="button secondary" to="/cameras">去摄像头页</Link><button type="button" className="button primary" disabled={!preflightReady} onClick={() => setSetupStep(1)}>下一步：选择物品<ArrowRight /></button></div>
@@ -691,7 +653,7 @@ export function RealMovementAcceptancePage() {
     return <section className="acceptance-setup-panel panel">
       <div className="section-heading"><div><p className="eyebrow">第四步</p><h2>让后端稳定识别手机 Marker</h2><p>先在真实手机上全屏打开 Marker 并放入 A 区。本页会用 item_id 和 camera_id 轮询当前 OpenCV 管线；连续稳定前不能开始。</p></div><Badge tone={markerStable ? 'success' : 'warning'}>{markerStable ? '后端已稳定识别' : markerAssigned ? '等待稳定识别' : '尚未绑定'}</Badge></div>
       <div className="acceptance-calibration-layout">
-        <div className={`acceptance-marker-readout ${markerStable ? 'recognized' : ''}`}>{markerStable ? <CheckCircle2 /> : <Camera />}<div><strong>{markerStable ? `后端已稳定识别 ${selectedItem?.name || '目标物品'}` : markerAssigned ? '已绑定，但后端还没有稳定识别' : '先在手机页绑定 Marker'}</strong><span>{markerStatus?.message || markerError || '识别、连续帧和稳定基线都以后端摄像头结果为准。'}</span><small>Marker {selectedItem?.aruco_id ?? '未分配'} · 状态 {markerStableState || '未回报'} · 页面不会自行判定。</small></div></div>
+        <div className={`acceptance-marker-readout ${markerStable ? 'recognized' : ''}`}>{markerStable ? <CheckCircle2 /> : <Camera />}<div><strong>{markerStable ? `后端已稳定识别 ${selectedItem?.name || '目标物品'}` : markerAssigned ? '已绑定，但后端还没有稳定识别' : '先在手机页绑定 Marker'}</strong><span>{markerStatus?.message || markerRead.error || '识别、连续帧和稳定基线都以后端摄像头结果为准。'}</span><small>Marker {selectedItem?.aruco_id ?? '未分配'} · 状态 {markerStableState || '未回报'} · 页面不会自行判定。</small></div></div>
         <CompanionAccess url={companionUrl} />
       </div>
       <div className="acceptance-run-actions"><Link className="button secondary" to={`/companion/validation-marker?item=${encodeURIComponent(itemId)}&camera=${encodeURIComponent(cameraId)}`} target="_blank">在本机预览标签页<ExternalLink /></Link><button type="button" className="button secondary" onClick={() => void refreshItems()}><RefreshCw />刷新绑定状态</button></div>
@@ -746,7 +708,7 @@ export function RealMovementAcceptancePage() {
         <section className="acceptance-live-card panel" aria-live="polite">
           <div className="acceptance-live-head"><div><p className="eyebrow">第 {Math.min(currentScenarioIndex + 1, ACCEPTANCE_SCENARIOS.length)} / {ACCEPTANCE_SCENARIOS.length} 轮</p><h2>{scenario?.label || '等待本轮信息'}</h2></div><Badge tone={currentVerdict === true ? 'success' : currentVerdict === false ? 'danger' : terminalCurrent ? 'warning' : 'blue'}>{currentVerdict === true ? '真实结果通过' : currentVerdict === false ? '真实结果未通过' : terminalCurrent ? '等待明确结论' : '后端观察中'}</Badge></div>
           <div className={`acceptance-plain-status ${currentVerdict === true ? 'success' : currentVerdict === false ? 'danger' : ''}`}>{currentVerdict === true ? <CheckCircle2 /> : currentVerdict === false ? <XCircle /> : <RefreshCw />}<div><strong>{copy.title}</strong><span>{currentRun?.message || copy.detail}</span></div></div>
-          <div className={`acceptance-marker-readout ${markerRecognized ? 'recognized' : ''}`}>{markerRecognized ? <CheckCircle2 /> : <Camera />}<div><strong>{markerRecognized ? '本轮后端已识别手机 Marker' : '本轮后端尚未识别 Marker'}</strong><span>{markerStatus?.message || markerError || '识别状态按当前 validation_run_id 从后端摄像头管线读取。'}</span><small>后端帧：{markerStatus?.source_frame ?? markerStatus?.frame ?? '—'} · 来源：{markerStatus?.source_type || '未回报'}</small></div></div>
+          <div className={`acceptance-marker-readout ${markerRecognized ? 'recognized' : ''}`}>{markerRecognized ? <CheckCircle2 /> : <Camera />}<div><strong>{markerRecognized ? '本轮后端已识别手机 Marker' : '本轮后端尚未识别 Marker'}</strong><span>{markerStatus?.message || markerRead.error || '识别状态按当前 validation_run_id 从后端摄像头管线读取。'}</span><small>后端帧：{markerStatus?.source_frame ?? markerStatus?.frame ?? '—'} · 来源：{markerStatus?.source_type || '未回报'}</small></div></div>
           <div className="acceptance-instruction"><MoveRight /><div><span>现在怎么做</span><strong>{liveInstruction}</strong><small>本轮期望：{scenario ? scenarioExpectation(scenario, regions) : '等待配置'}</small></div></div>
           {waitingForMovementBuffer && <div className="acceptance-callout warning"><Clock3 /><div><strong>还不能移动</strong><span>{baselineReady ? '稳定基线已建立，继续积累事件前视频。' : '后端还没有建立稳定起点基线。'} 页面会等真实媒体缓存达到要求再显示移动指令。</span></div></div>}
           {currentRun && !terminalCurrent && <div className="acceptance-frame-progress"><span style={{ width: `${Math.min(100, Math.round(ringSeconds / Math.max(0.001, requiredPreSeconds) * 100))}%` }} /><small>事件前媒体缓存 {ringSeconds.toFixed(1)} / {requiredPreSeconds.toFixed(1)} 秒</small></div>}

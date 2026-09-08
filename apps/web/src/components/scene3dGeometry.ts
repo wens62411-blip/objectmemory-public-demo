@@ -33,7 +33,7 @@ export function createSceneWorld(geometry: SceneWorldGeometry | null | undefined
   return group
 }
 
-export function usableSceneMarker(marker: SceneMarker, scene: SceneDocument, knownItemIds: ReadonlySet<string>, now = Date.now()) {
+export function usableSceneMarker(marker: SceneMarker, scene: SceneDocument, knownItemIds: Pick<ReadonlySet<string>, 'has'>, now = Date.now()) {
   if (scene.invalid_reason || scene.world_geometry?.status === 'draft' || ['needs_review', 'needs_confirmation', 'pending_delete', 'validation_failed'].includes(scene.calibration_status)
     || marker.camera_id !== scene.camera_id || marker.scene_version !== scene.scene_version
     || marker.runtime_mode !== scene.runtime_mode || marker.is_simulated !== scene.is_simulated

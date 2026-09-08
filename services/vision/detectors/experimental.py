@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -63,37 +62,44 @@ class OnnxYoloDetectorBackend(DetectorBackend):
         blob = cv2.dnn.blobFromImage(canvas, 1 / 255.0, (self.input_size, self.input_size), swapRB=True, crop=False)
         self.net.setInput(blob)
         output = self.net.forward()
-        predictions = np.squeeze(output)
+        # Remove only the batch dimension: squeeze() also discards a lone box.
+        predictions = np.asarray(output)
+        if predictions.ndim == 3 and predictions.shape[0] == 1:
+            predictions = predictions[0]
         if predictions.ndim != 2:
             return []
-        # Ultralytics ONNX may emit [84,N] or [N,84].
-        if predictions.shape[0] < predictions.shape[1] and predictions.shape[0] in (84, 85):
+        # Raw COCO exports have 84 (v8) or 85 (v5) fields, even with few boxes.
+        if predictions.shape[1] not in (84, 85) and predictions.shape[0] in (84, 85):
             predictions = predictions.T
-        boxes: list[list[int]] = []
-        scores: list[float] = []
-        class_ids: list[int] = []
-        for row in predictions:
-            if len(row) < 5:
-                continue
-            class_scores = row[4:]
-            class_id = int(np.argmax(class_scores))
-            score = float(class_scores[class_id])
-            if score < self.confidence:
-                continue
-            cx, cy, bw, bh = (float(value) * scale for value in row[:4])
-            boxes.append([int(cx - bw / 2), int(cy - bh / 2), int(bw), int(bh)])
-            scores.append(score)
-            class_ids.append(class_id)
+        if predictions.shape[1] < 5:
+            return []
+        # Reduce all class rows in NumPy; only decode boxes above the gate.
+        class_offset = 5 if predictions.shape[1] == 85 else 4
+        class_ids = predictions[:, class_offset:].argmax(axis=1)
+        scores = predictions[np.arange(len(predictions)), class_ids + class_offset].astype(np.float64)
+        if class_offset == 5:
+            # YOLOv5 field 4 is objectness, never a COCO class probability.
+            scores *= predictions[:, 4]
+        selected = (np.isfinite(scores) & (scores >= self.confidence)
+                    & np.isfinite(predictions[:, :4]).all(axis=1)
+                    & (predictions[:, 2:4] > 0).all(axis=1))
+        centers, sizes = np.split(predictions[selected, :4].astype(np.float64) * scale, 2, axis=1)
+        boxes = [[int(value) for value in row] for row in np.column_stack((centers - sizes / 2, sizes))]
+        scores, class_ids = scores[selected].tolist(), class_ids[selected]
         keep = cv2.dnn.NMSBoxes(boxes, scores, self.confidence, 0.45)
         detections: list[Detection] = []
         for index in np.asarray(keep).reshape(-1) if len(keep) else []:
             x, y, w, h = boxes[int(index)]
-            class_id = class_ids[int(index)]
+            x1, y1 = max(0, x), max(0, y)
+            x2, y2 = min(width, x + w), min(height, y + h)
+            if x2 <= x1 or y2 <= y1:
+                continue
+            class_id = int(class_ids[int(index)])
             label = COCO80[class_id] if class_id < len(COCO80) else f"class_{class_id}"
             detections.append(Detection(
                 identity=f"generic:{label}:{index}", label=label,
-                bbox=(max(0, x), max(0, y), min(width - max(0, x), w), min(height - max(0, y), h)),
-                center=(x + w / 2, y + h / 2), confidence=scores[int(index)],
+                bbox=(x1, y1, x2 - x1, y2 - y1),
+                center=((x1 + x2) / 2, (y1 + y2) / 2), confidence=scores[int(index)],
                 detection_mode="experimental", raw_id=class_id,
             ))
         return detections

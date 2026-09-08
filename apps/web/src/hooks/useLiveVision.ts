@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { wsUrl } from '../lib/api'
 import type { EventRecord, RecognitionTest } from '../types'
 
@@ -34,6 +34,7 @@ export function parseVisionPacket(packet: ArrayBuffer): { metadata: Omit<LiveVis
 export function useLiveVision(cameraId: string, active: boolean) {
   const [state, setState] = useState<{ connected: boolean; frame: LiveVisionFrame | null; error: string; fps: number }>({ connected: false, frame: null, error: '', fps: 0 })
   const acknowledge = useRef<(frame: number, session: string) => void>(() => {})
+  const acknowledgeFrame = useCallback((frame: number, session: string) => acknowledge.current(frame, session), [])
   useEffect(() => {
     let disposed = false, socket: WebSocket | null = null, retry: ReturnType<typeof setTimeout> | undefined
     let expiry: ReturnType<typeof setTimeout> | undefined, currentUrl = '', previousUrl = '', pending = ''
@@ -117,5 +118,5 @@ export function useLiveVision(cameraId: string, active: boolean) {
     document.addEventListener('visibilitychange', visibility)
     return () => { disposed = true; stop(); acknowledge.current = () => {}; document.removeEventListener('visibilitychange', visibility) }
   }, [cameraId, active])
-  return { ...state, acknowledge: (frame: number, session: string) => acknowledge.current(frame, session) }
+  return { ...state, acknowledge: acknowledgeFrame }
 }

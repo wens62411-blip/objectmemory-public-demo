@@ -675,7 +675,7 @@ def test_controlled_reconnect_first_frame_cannot_pass_before_stable_baseline(tmp
 
 def test_acceptance_http_control_plane_has_no_client_completion_endpoint(tmp_path):
     app = create_app(tmp_path / "api", testing=False, runtime_mode="REAL")
-    with TestClient(app) as client:
+    with TestClient(app, base_url='http://127.0.0.1') as client:
         client.cookies.set("om_session", app.state.runtime.sessions.issue())
         assert client.get("/api/session").json()["authenticated"] is True
         runtime = app.state.runtime

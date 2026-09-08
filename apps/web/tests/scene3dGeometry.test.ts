@@ -11,7 +11,7 @@ const world: SceneWorldGeometry = { schema: 'scene3d_v1', coordinate_system: 'ri
 ] }
 const scene = { camera_id: 'camera-a', scene_version: 4, runtime_mode: 'REAL', source_type: 'opencv_camera', is_simulated: false, source_session_id: 'scene-session', calibration_status: 'calibrated', world_geometry: world } as SceneDocument
 const marker: SceneMarker = { item_id: 'registered-phone', camera_id: 'camera-a', scene_version: 4, frame_id: 99, source_session_id: 'current-session', observation_timestamp: '2026-09-06T10:00:00Z', runtime_mode: 'REAL', source_type: 'opencv_camera', is_simulated: false, position_status: 'mapped', mapping_method: 'homography', map_position: [2, .79, 1] }
-const known = new Set(['registered-phone'])
+const known = new Map([['registered-phone', '我的手机']])
 const time = Date.parse(marker.observation_timestamp!)
 
 describe('真实 Three.js 几何单元测试（不是浏览器 WebGL 或物理摄像头验收）', () => {

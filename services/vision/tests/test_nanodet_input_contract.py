@@ -101,6 +101,39 @@ def test_default_confidence_is_not_lowered_to_make_a_fixture_pass():
     assert detector.detect(np.zeros((100,100,3), dtype=np.uint8)) == []
 
 
+def test_top_anchor_gate_skips_unused_distributions_without_changing_nms_input(monkeypatch):
+    detector = NanoDetDetectorBackend('never-a-model.onnx')
+    detector.strides = (8,)
+    generator = np.random.default_rng(19)
+    classes = generator.integers(0, 10, (2704, 80)).astype(np.float32) / 10
+    boxes = generator.normal(0, 1, (2704, 32)).astype(np.float32)
+    # Decode all rows as the reference path did, including confidence ties.
+    keep = classes.max(axis=1).argsort()[::-1][:1000]
+    exponent = np.exp(boxes.reshape(-1, 8))
+    distances = ((exponent / exponent.sum(axis=1, keepdims=True)) @ detector.project).reshape(-1, 4) * 8
+    anchors, distances = detector.anchors[0][keep], distances[keep]
+    corners = np.clip(np.column_stack((anchors - distances[:, :2], anchors + distances[:, 2:])), 0, 416)
+    expected_boxes = corners.copy()
+    expected_boxes[:, 2:] -= expected_boxes[:, :2]
+    decoded_rows = []
+    real_exp = np.exp
+
+    def exp(value):
+        decoded_rows.append(len(value))
+        return real_exp(value)
+
+    def nms(actual_boxes, scores, *_args):
+        np.testing.assert_allclose(actual_boxes, expected_boxes, atol=1e-8, rtol=0)
+        np.testing.assert_array_equal(scores, classes[keep].max(axis=1))
+        return []
+
+    monkeypatch.setattr(np, 'exp', exp)
+    monkeypatch.setattr(cv2.dnn, 'NMSBoxes', nms)
+    detector.net = RecordingNet([classes[None], boxes[None]])
+    assert detector.detect(np.zeros((416, 416, 3), np.uint8)) == []
+    assert decoded_rows == [4000]  # 1,000 selected boxes x four sides, formerly 10,816 rows.
+
+
 def test_unknown_runtime_is_not_silently_selected():
     with pytest.raises(ValueError, match='runtime'):
         NanoDetDetectorBackend('absent.onnx', runtime='network-magic')

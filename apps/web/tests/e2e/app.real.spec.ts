@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 const execFile = promisify(execFileCallback)
 const projectRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..')
+const python = process.env.OM_E2E_PYTHON || resolve(projectRoot, '.venv', 'Scripts', 'python.exe')
 
 async function optionalHash(path: string) {
   try { return createHash('sha256').update(await readFile(path)).digest('hex') } catch { return null }
@@ -15,7 +16,7 @@ async function optionalHash(path: string) {
 
 async function sqliteCounts(database: string) {
   const code = "import json,sqlite3,sys;c=sqlite3.connect(sys.argv[1]);print(json.dumps({t:c.execute('SELECT COUNT(*) FROM '+t).fetchone()[0] for t in ('movement_events','item_current_state','tracks','event_media','source_sessions')}));c.close()"
-  const { stdout } = await execFile(resolve(projectRoot, '.venv', 'Scripts', 'python.exe'), ['-c', code, database], { cwd: projectRoot })
+  const { stdout } = await execFile(python, ['-c', code, database], { cwd: projectRoot })
   return JSON.parse(stdout) as Record<string, number>
 }
 
@@ -51,7 +52,6 @@ test('照片注册真实 UI → FastAPI → DINO → SQLite，不以合成纹理
   await json(await request.get('/api/session'))
   const diagnostics = await json<{ database_path: string }>(await request.get('/api/system/diagnostics'))
   const before = await sqliteCounts(diagnostics.database_path)
-  const python = resolve(projectRoot, '.venv', 'Scripts', 'python.exe')
   const { stdout: encoded } = await execFile(python, ['-B', '-c',
     "import base64,cv2,numpy as np;a=np.random.default_rng(27).integers(0,256,(256,320,3),dtype=np.uint8);print(base64.b64encode(cv2.imencode('.png',a)[1]).decode())"], { cwd: projectRoot })
   await page.goto('/items')
@@ -187,7 +187,7 @@ test('P0 真实控制面：Marker 可解码、页面刷新不创建套件或事�
   expect(markerResponse.ok()).toBe(true)
   const markerBytes = await markerResponse.body()
   const decoder = "import base64,cv2,json,numpy as np,sys;im=cv2.imdecode(np.frombuffer(base64.b64decode(sys.argv[1]),np.uint8),0);d=cv2.aruco.ArucoDetector(cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50));c,ids,r=d.detectMarkers(im);print(json.dumps(ids.flatten().tolist() if ids is not None else []))"
-  const { stdout } = await execFile(resolve(projectRoot, '.venv', 'Scripts', 'python.exe'), ['-c', decoder, markerBytes.toString('base64')], { cwd: projectRoot })
+  const { stdout } = await execFile(python, ['-c', decoder, markerBytes.toString('base64')], { cwd: projectRoot })
   expect(JSON.parse(stdout)).toEqual([bound.aruco_id])
 
   const pageWrites: string[] = []
@@ -258,6 +258,31 @@ test('易用性真实后端：手机入口、窄屏布局、重复摄像头拒�
   console.log(`[USABILITY_REAL_EVIDENCE] ${JSON.stringify({ duplicate_http: duplicate.status(), camera_count: 1, mobile_widths: [390, 360], tablet_width: 920, runtime_mode_visible: true, no_fake_lan_qr: true, sqlite_unchanged: true, physical_camera_opened: false })}`)
 })
 
+test('页面资源断开时保留真实模式与导航，重新加载恢复；核心API不Mock', async ({ page, request }) => {
+  await json(await request.get('/api/session'))
+  const diagnostics = await json<{ database_path: string }>(await request.get('/api/system/diagnostics'))
+  const before = await sqliteCounts(diagnostics.database_path)
+  const writes: string[] = []
+  page.on('request', outgoing => {
+    if (outgoing.url().includes('/api/') && !['GET', 'HEAD'].includes(outgoing.method())) writes.push(outgoing.url())
+  })
+  const deviceChunk = /\/assets\/DevicesPage-[^/]+\.js$/
+  // Fault-inject only the static page chunk; API, sessions and SQLite stay real.
+  await page.route(deviceChunk, route => route.abort('failed'))
+  await page.goto('/')
+  await page.locator('details.advanced-nav summary').click()
+  await page.getByRole('link', { name: '设备中心', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('页面暂时无法加载')
+  await expect(page.locator('.topbar-status').getByText('REAL · 真实模式', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '物忆首页' })).toBeVisible()
+  await page.unroute(deviceChunk)
+  await page.getByRole('button', { name: '重新加载页面', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '插上 USB，一键装好摄像头', exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  expect(writes).toEqual([])
+  expect(await sqliteCounts(diagnostics.database_path)).toEqual(before)
+})
+
 test('手动作真实 HTTP：离线缓存为空、显示与分析独立保存、手机桌面无溢出', async ({ page, request }) => {
   await json(await request.get('/api/session'))
   const diagnostics = await json<{ database_path: string }>(await request.get('/api/system/diagnostics'))
@@ -310,7 +335,7 @@ test('手动作真实 HTTP：离线缓存为空、显示与分析独立保存、
   await expect(analysis).toBeChecked()
   await expect(overlay).not.toBeChecked()
   expect(await json(await request.get('/api/settings'))).toMatchObject({ show_hands: false, hand_detection_enabled: true })
-  const { stdout } = await execFile(resolve(projectRoot, '.venv', 'Scripts', 'python.exe'), ['-B', '-c',
+  const { stdout } = await execFile(python, ['-B', '-c',
     "import json,sqlite3,sys;c=sqlite3.connect(sys.argv[1]);v=json.loads(c.execute(\"SELECT value FROM settings WHERE id='main'\").fetchone()[0]);print(json.dumps({k:v.get(k) for k in ('show_hands','hand_detection_enabled')}));c.close()",
     diagnostics.database_path], { cwd: projectRoot })
   expect(JSON.parse(stdout)).toEqual({ show_hands: false, hand_detection_enabled: true })

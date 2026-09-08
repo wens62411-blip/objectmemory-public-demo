@@ -86,4 +86,18 @@ describe('页面 GET 生命周期（受控网络单元测试，非硬件证明�
     await act(async () => { second.resolve(response('S3 verified')); await second.promise })
     expect(result.current.data).toEqual({ value: 'S3 verified' })
   })
+
+  it('只改变轮询间隔时保留已读数据，不重新闪烁加载状态', async () => {
+    vi.useFakeTimers()
+    const second = deferred()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response('ready')).mockReturnValue(second.promise))
+    const { result, rerender } = renderHook(({ interval }) => usePolling('/api/health', {}, interval), { initialProps: { interval: 5000 } })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    rerender({ interval: 10000 })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(result.current.data).toEqual({ value: 'ready' })
+    expect(result.current.loading).toBe(false)
+    await act(async () => { second.resolve(response('new')); await second.promise })
+    expect(result.current.data).toEqual({ value: 'new' })
+  })
 })

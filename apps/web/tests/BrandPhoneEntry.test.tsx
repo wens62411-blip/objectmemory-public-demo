@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App'
@@ -11,7 +11,30 @@ const json = (value: unknown) => new Response(JSON.stringify(value), { status: 2
 const settings = { detection_mode: 'aruco', inference_fps: 5, static_seconds: 2, pre_seconds: 5, post_seconds: 5, retention_days: 7, save_clips: true, show_hands: true, privacy_mode: true, record_events: true }
 
 describe('Mock 组件契约：品牌导航与手机入口（不是实机可达测试）', () => {
-  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+  afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  it('首页和导航共享健康轮询，隐藏时暂停，REAL首页不读取演示固件状态', async () => {
+    vi.useFakeTimers()
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => json({
+      '/api/session': { authenticated: true }, '/api/runtime-config': { runtime_mode: 'REAL' },
+      '/api/health': { status: 'ok', stats: { items: 7 } },
+    }[String(input)] || []))
+    vi.stubGlobal('fetch', fetcher)
+    await act(async () => { render(<MemoryRouter><App /></MemoryRouter>) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    const healthReads = () => fetcher.mock.calls.filter(([path]) => path === '/api/health').length
+    expect(healthReads()).toBe(1)
+    expect(screen.getByText('本地服务正常')).toBeInTheDocument()
+    expect(screen.getByText('7')).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(healthReads()).toBe(2)
+    visibility.mockReturnValue('hidden')
+    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(20000) })
+    expect(healthReads()).toBe(2)
+    expect(fetcher.mock.calls.some(([path]) => path === '/api/firmware/status')).toBe(false)
+  })
 
   it.each(['REAL', 'DEMO'])('顶栏持续保留当前%s模式，DEMO另有常驻模拟警示', async (mode) => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => json(String(input) === '/api/runtime-config' ? { runtime_mode: mode } : { status: 'ok' })))

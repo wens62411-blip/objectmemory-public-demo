@@ -1,7 +1,6 @@
 import type {
   AcceptanceMarkerBinding,
   AcceptanceMarkerStatus,
-  AcceptancePreflight,
   AcceptanceRun,
   AcceptanceSuite,
   CreateAcceptanceRunRequest,
@@ -70,9 +69,6 @@ export function queryString(values: Record<string, string | number | undefined |
 }
 
 export const acceptanceApi = {
-  preflight(cameraId?: string | null) {
-    return api<AcceptancePreflight>(`/api/acceptance/preflight${queryString({ camera_id: cameraId })}`)
-  },
   createSuite(payload: CreateAcceptanceSuiteRequest) {
     return api<AcceptanceSuite>('/api/acceptance/suites', { method: 'POST', json: payload })
   },
@@ -81,12 +77,6 @@ export const acceptanceApi = {
   },
   createRun(payload: CreateAcceptanceRunRequest) {
     return api<AcceptanceRun>('/api/acceptance/runs', { method: 'POST', json: payload })
-  },
-  runs(filters: { validation_run_id?: string | null; status?: string | null; limit?: number } = {}) {
-    return api<AcceptanceRun[]>(`/api/acceptance/runs${queryString({ validation_run_id: filters.validation_run_id, status: filters.status, limit: filters.limit })}`)
-  },
-  run(runId: string) {
-    return api<AcceptanceRun>(`/api/acceptance/runs/${encodeURIComponent(runId)}`)
   },
   startRun(runId: string) {
     return api<AcceptanceRun>(`/api/acceptance/runs/${encodeURIComponent(runId)}/start`, { method: 'POST' })

@@ -79,6 +79,22 @@ describe('Mock WebSocket 背压、URL生命周期和页面可见性合同（不�
   })
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+  it('解码ACK回调跨帧和重连保持引用，仍确认当前会话的帧', async () => {
+    const { result, socket } = await start()
+    const acknowledge = result.current.acknowledge
+    act(() => socket.message(packet()))
+    expect(result.current.acknowledge).toBe(acknowledge)
+    act(() => acknowledge(10, 'session-a'))
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ ack: 10, source_session_id: 'session-a' }))
+    act(() => socket.close())
+    await advance(500)
+    const replacement = MockSocket.instances[1]
+    act(() => { replacement.open(); replacement.message(packet({ source_session_id: 'session-b', source_frame: 1 })) })
+    expect(result.current.acknowledge).toBe(acknowledge)
+    act(() => acknowledge(1, 'session-b'))
+    expect(replacement.send).toHaveBeenCalledWith(JSON.stringify({ ack: 1, source_session_id: 'session-b' }))
+  })
+
   it('StrictMode 首轮检查不得创建随后立即取消的 CONNECTING socket', async () => {
     const { unmount } = renderHook(() => useLiveVision('camera-a', true), { wrapper: StrictMode })
     expect(MockSocket.instances).toHaveLength(0)

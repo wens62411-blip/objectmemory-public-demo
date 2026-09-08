@@ -105,6 +105,7 @@ class Database:
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_movement_validation_run ON movement_events(validation_run_id) WHERE validation_run_id IS NOT NULL;
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_current_item_mode ON item_current_state(item_id, runtime_mode);
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_items_aruco ON items(aruco_id) WHERE aruco_id IS NOT NULL;
+                    CREATE INDEX IF NOT EXISTS idx_reference_item_time ON item_reference_images(item_id, created_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_media_event ON event_media(event_id, status);
                     CREATE INDEX IF NOT EXISTS idx_source_session ON source_sessions(runtime_mode, camera_id, started_at DESC);
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_acceptance_suite_id ON acceptance_suites(suite_id) WHERE suite_id IS NOT NULL;
@@ -146,24 +147,27 @@ class Database:
                 result[key] = bool(result.get(key))
         return result
 
-    def _scope_sql(self, table: str, filters: dict[str, Any]) -> tuple[list[str], list[Any]]:
+    def _scope_sql(self, table: str, filters=None, *, unscoped: bool = False) -> tuple[list[str], list[Any]]:
         clauses: list[str] = []
         values: list[Any] = []
-        if table in MODE_SCOPED and "runtime_mode" in SCHEMA[table]:
+        if not unscoped and table in MODE_SCOPED and "runtime_mode" in SCHEMA[table]:
             clauses.append('"runtime_mode"=?')
             values.append(self.runtime_mode)
             if self.runtime_mode == "REAL" and "is_simulated" in SCHEMA[table]:
                 clauses.append('COALESCE("is_simulated",1)=0')
             if self.runtime_mode == "REAL" and "source_type" in SCHEMA[table]:
                 clauses.append('COALESCE("source_type",\'unknown\') NOT IN (\'unknown\',\'mock\',\'demo_seed\',\'test_fixture\',\'video_file\',\'virtual_esp32\',\'esp32_unverified\')')
-        for key, value in filters.items():
-            clauses.append(f'"{key}"=?')
-            values.append(int(value) if SCHEMA[table].get(key) == "BOOL" else value)
+        for key, value in (filters or {}).items():
+            if (key not in SCHEMA[table] and key not in {'id', 'created_at', 'updated_at'}) or value is None:
+                continue
+            candidates = value if isinstance(value, (list, tuple)) else [value]
+            clauses.append(f'"{key}" IN ({",".join("?" for _ in candidates)})' if candidates else '0')
+            values.extend(int(candidate) if SCHEMA[table].get(key) == "BOOL" and candidate is not None else candidate for candidate in candidates)
         return clauses, values
 
     def get(self, table: str, record_id: str, *, unscoped: bool = False):
         table = self.table(table)
-        clauses, values = ([], []) if unscoped else self._scope_sql(table, {})
+        clauses, values = self._scope_sql(table, unscoped=unscoped)
         clauses.insert(0, '"id"=?')
         values.insert(0, record_id)
         with self.connect() as conn:
@@ -173,12 +177,7 @@ class Database:
     def list(self, table: str, filters=None, limit: int = 1000, order: str | None = None, *, unscoped: bool = False):
         table = self.table(table)
         fields = SCHEMA[table]
-        safe_filters = {key: value for key, value in (filters or {}).items() if key in fields and value is not None}
-        if unscoped:
-            clauses = [f'"{key}"=?' for key in safe_filters]
-            values = [int(value) if fields.get(key) == "BOOL" else value for key, value in safe_filters.items()]
-        else:
-            clauses, values = self._scope_sql(table, safe_filters)
+        clauses, values = self._scope_sql(table, filters, unscoped=unscoped)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         order = order if order in {"created_at", "updated_at", *fields} else "created_at"
         cap = min(max(int(limit), 1), 100000)
@@ -188,25 +187,56 @@ class Database:
 
     def count(self, table: str, filters=None, *, unscoped: bool = False) -> int:
         table = self.table(table)
-        fields = SCHEMA[table]
-        safe_filters = {key: value for key, value in (filters or {}).items() if key in fields and value is not None}
-        if unscoped:
-            clauses, values = [f'"{key}"=?' for key in safe_filters], list(safe_filters.values())
-        else:
-            clauses, values = self._scope_sql(table, safe_filters)
+        clauses, values = self._scope_sql(table, filters, unscoped=unscoped)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self.connect() as conn:
             return int(conn.execute(f'SELECT COUNT(*) FROM "{table}"{where}', values).fetchone()[0])
 
+    def event_counts(self, day: str) -> tuple[int, int]:
+        clauses, values = self._scope_sql('movement_events')
+        where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
+        # Offset-bearing timestamps use the machine's local day; legacy naive
+        # timestamps already describe local time. Invalid dates count only in total.
+        with self.connect() as conn:
+            row = conn.execute('''SELECT COUNT(*), COALESCE(SUM(CASE
+                WHEN length(timestamp_start)>10 AND (substr(timestamp_start, -6, 1) IN ('+', '-') OR upper(substr(timestamp_start, -1))='Z')
+                THEN date(timestamp_start, 'localtime') ELSE date(timestamp_start) END = ?), 0)
+                FROM movement_events''' + where, [day, *values]).fetchone()
+        return tuple(row)
+
     def save(self, table: str, data: dict[str, Any], record_id: str | None = None):
+        return self.save_many([(table, data, record_id)])[0]
+
+    def save_many(self, records: Iterable[tuple[str, dict[str, Any], str | None]]):
+        """Commit related rows together, including their returned snapshots.
+
+        Materialize once so lock retries neither consume an iterator twice nor
+        generate new identifiers. Reads/decode happen before the commit: a caller
+        can safely remove newly staged files when this operation raises.
+        """
+        statements = [self._save_statement(table, data, record_id) for table, data, record_id in records]
+        if not statements:
+            return []
+
+        def operation():
+            result = []
+            with self.connect() as conn:
+                for table, record_id, sql, values in statements:
+                    conn.execute(sql, values)
+                    result.append(self._decode(table, conn.execute(
+                        f'SELECT * FROM "{table}" WHERE id=?', [record_id]).fetchone()))
+            return result
+
+        return self._run_retry(operation)
+
+    def _save_statement(self, table, data, record_id=None):
         table = self.table(table)
         record_id = str(record_id or data.get("id") or uuid4().hex)
         stamp = now()
         insert = {"id": record_id, "created_at": stamp, "updated_at": stamp, **self._encode(table, data)}
         update_keys = [key for key in insert if key not in {"id", "created_at"}]
         sql = f'INSERT INTO "{table}" (' + ",".join(f'"{key}"' for key in insert) + ") VALUES (" + ",".join("?" for _ in insert) + ") " + 'ON CONFLICT("id") DO UPDATE SET ' + ",".join(f'"{key}"=excluded."{key}"' for key in update_keys)
-        self._run_retry(lambda: self._execute(sql, list(insert.values())))
-        return self.get(table, record_id, unscoped=True)
+        return table, record_id, sql, list(insert.values())
 
     def save_current_state_if_newer(self, data: dict[str, Any], record_id: str, *, observation_media: dict | None = None, expected_profile: dict | None = None):
         """Upsert an observation without allowing delayed callbacks to rewind state.
@@ -546,11 +576,17 @@ class Database:
             return int(cursor.rowcount)
 
     def delete(self, table: str, record_id: str, *, unscoped: bool = False) -> int:
-        table = self.table(table)
-        clauses, values = ([], []) if unscoped else self._scope_sql(table, {})
-        clauses.insert(0, '"id"=?')
-        values.insert(0, record_id)
-        return self._run_retry(lambda: self._execute(f'DELETE FROM "{table}" WHERE ' + " AND ".join(clauses), values))
+        return self.delete_many(table, [record_id], unscoped=unscoped)
 
     def delete_many(self, table: str, record_ids: Iterable[str], *, unscoped: bool = False) -> int:
-        return sum(self.delete(table, record_id, unscoped=unscoped) for record_id in record_ids)
+        table = self.table(table)
+        clauses, values = self._scope_sql(table, unscoped=unscoped)
+        clauses.insert(0, '"id"=?')
+        # Materialize once so a lock retry can replay one-shot iterables in full.
+        parameters = [(record_id, *values) for record_id in record_ids]
+        if not parameters:
+            return 0
+        def operation():
+            with self.connect() as conn:
+                return conn.executemany(f'DELETE FROM "{table}" WHERE ' + " AND ".join(clauses), parameters).rowcount
+        return self._run_retry(operation)

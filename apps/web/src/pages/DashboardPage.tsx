@@ -4,7 +4,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useApi, usePolling } from '../hooks/useApi'
 import { api } from '../lib/api'
 import { eventLabel, formatTime, sourceLabels, statusTone } from '../lib/format'
-import type { Camera as CameraType, EventRecord, HealthResponse, Item } from '../types'
+import type { Camera as CameraType, EventRecord, Item } from '../types'
+import { useHealth } from '../components/AppShell'
 import { Badge, EmptyState, ErrorState, Loading, SearchBox } from '../components/UI'
 import { useToast } from '../components/Toast'
 import { EventProvenance, SourceBadge } from '../components/ProvenanceBadge'
@@ -16,14 +17,14 @@ export function DashboardPage() {
   const [seeding, setSeeding] = useState(false)
   const navigate = useNavigate()
   const { notify } = useToast()
-  const health = usePolling<HealthResponse>('/api/health', { status: 'connecting' }, 5000)
+  const health = useHealth()
   const cameras = useApi<CameraType[]>('/api/cameras', [])
   const items = useApi<Item[]>('/api/items', [])
   const events = useApi<EventRecord[]>('/api/events?limit=6', [])
   const runtime = useRuntime()
-  const firmware = usePolling<{ compile_passed?: boolean; physical_flash_performed?: boolean }>('/api/firmware/status', {}, 10000)
+  const firmware = usePolling<{ compile_passed?: boolean; physical_flash_performed?: boolean }>(runtime.mode === 'DEMO' ? '/api/firmware/status' : null, {}, 10000)
   const virtual = usePolling<{ running?: boolean; backend_online?: boolean; source?: string }>(runtime.mode === 'DEMO' ? '/api/virtual-device/status' : null, {}, 5000)
-  const stats = health.data.stats || {}
+  const stats = health.data?.stats || {}
   const demoMode = runtime.mode === 'DEMO'
 
   async function seedDemo() {

@@ -55,9 +55,11 @@ def preprocess_crop(crop: np.ndarray) -> np.ndarray:
     resized = rgb.resize(size, Image.Resampling.BICUBIC)
     padded = Image.new('RGB', (224, 224), (0, 0, 0))
     padded.paste(resized, ((224 - size[0]) // 2, (224 - size[1]) // 2))
-    pixels = np.asarray(padded, dtype=np.float32) / np.float32(255)
-    pixels = (pixels - np.asarray([0.485, 0.456, 0.406], np.float32)) / np.asarray([0.229, 0.224, 0.225], np.float32)
-    return np.ascontiguousarray(pixels.transpose(2, 0, 1)[None], dtype=np.float32)
+    pixels = np.ascontiguousarray(np.asarray(padded).transpose(2, 0, 1), dtype=np.float32)
+    pixels /= np.float32(255)
+    pixels -= np.asarray([0.485, 0.456, 0.406], np.float32)[:, None, None]
+    pixels /= np.asarray([0.229, 0.224, 0.225], np.float32)[:, None, None]
+    return pixels[None]
 
 
 @dataclass
@@ -320,7 +322,7 @@ class ProfileMatcher:
             vector = np.asarray(self.encoder.encode(crop), np.float64)
             if vector.shape != (self.encoder.dimension,) or not np.isfinite(vector).all() or not np.isclose(np.linalg.norm(vector), 1, atol=1e-3):
                 raise ValueError("Encoder returned invalid unit features")
-            scores = sorted(((float(np.clip(np.max(matrix @ vector), -1, 1)), item_id, version)
+            scores = sorted(((max(-1., min(1., float((matrix @ vector).max()))), item_id, version)
                              for item_id, _category, version, matrix in profiles), key=lambda row: (-row[0], row[1]))
         except Exception as exc:
             return {**result, "rejection": "encoder_error", "error": str(exc)}

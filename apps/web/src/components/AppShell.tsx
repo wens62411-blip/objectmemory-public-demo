@@ -1,9 +1,10 @@
 import { Activity, Camera, ChevronDown, Clock3, Cpu, Database, House, Map, Menu, PackageSearch, Radio, ScanLine, Search, Settings, Smartphone, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
-import { api } from '../lib/api'
+import { Link, NavLink, Outlet, useLocation, useOutletContext } from 'react-router-dom'
+import { usePolling } from '../hooks/useApi'
 import type { HealthResponse } from '../types'
 import { Badge } from './UI'
+import { PageBoundary } from './PageBoundary'
 import { useRuntime } from '../contexts/RuntimeContext'
 import { RuntimeModeBanner } from './RuntimeModeBanner'
 import { Brand } from './Brand'
@@ -27,9 +28,10 @@ const advancedNavigation = [
 
 export function AppShell() {
   const [open, setOpen] = useState(false)
-  const [health, setHealth] = useState<HealthResponse | null>(null)
   const runtime = useRuntime()
   const location = useLocation()
+  const healthState = usePolling<HealthResponse | null>('/api/health', null, location.pathname === '/' ? 5000 : 10000)
+  const health = healthState.error ? null : healthState.data
   useEffect(() => { setOpen(false) }, [location.pathname, location.hash])
   useEffect(() => {
     if (!open) return
@@ -39,10 +41,6 @@ export function AppShell() {
     document.body.style.overflow = 'hidden'
     return () => { document.removeEventListener('keydown', onEscape); document.body.style.overflow = previous }
   }, [open])
-  useEffect(() => {
-    const load = () => api<HealthResponse>('/api/health').then(setHealth).catch(() => setHealth(null))
-    void load(); const timer = window.setInterval(load, 10_000); return () => window.clearInterval(timer)
-  }, [])
   return (
     <div className={`app-shell ${runtime.mode !== 'REAL' ? 'runtime-flagged' : ''}`}>
       <a className="skip-link" href="#main-content">跳转到主要内容</a>
@@ -69,7 +67,7 @@ export function AppShell() {
           <Link className="topbar-phone-link" to="/settings#mobile-access"><Smartphone />连接手机</Link>
           <div className="topbar-status" data-runtime-mode={runtime.mode}><Badge tone={runtime.mode === 'REAL' ? 'success' : runtime.mode === 'UNKNOWN' ? 'danger' : 'warning'}>{runtime.mode === 'REAL' ? 'REAL · 真实模式' : runtime.mode}</Badge><Badge tone={health ? 'success' : 'warning'}>{health ? '本地处理' : '后端未连接'}</Badge><span>{health?.version ? `v${health.version}` : '家庭视频留在本机'}</span></div>
         </header>
-        <main id="main-content" className="page-content" tabIndex={-1}><Outlet /></main>
+        <main id="main-content" className="page-content" tabIndex={-1}><PageBoundary><Outlet context={healthState} /></PageBoundary></main>
       </div>
       <nav className="mobile-nav" aria-label="移动端主导航">
         {navigation.slice(0, 4).map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => isActive ? 'active' : ''}><Icon /><span>{label}</span></NavLink>)}
@@ -78,3 +76,5 @@ export function AppShell() {
     </div>
   )
 }
+
+export const useHealth = () => useOutletContext<ReturnType<typeof usePolling<HealthResponse | null>>>()

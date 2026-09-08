@@ -11,6 +11,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 import pytest
+from PIL import Image
 
 from services.vision.detectors.appearance import (
     AppearanceEncoder, AppearanceEncodingError, DEFAULT_MODEL_PATH, DIMENSION,
@@ -93,6 +94,26 @@ def test_preprocess_application_whole_crop_rgb_normalization_and_nchw():
     np.testing.assert_allclose(actual[0, :, 10, 10], [(0 - .485) / .229, (0 - .456) / .224, (0 - .406) / .225], rtol=1e-6)
 
 
+@pytest.mark.parametrize('shape', [(224, 224), (53, 171), (181, 47)])
+def test_preprocess_preserves_v2_bits_for_strided_inputs(shape):
+    height, width = shape
+    source = np.random.default_rng(11).integers(0, 256, (height*2, width*2, 3), dtype=np.uint8)
+    crop = source[::2, ::2, ::-1]
+    before = source.copy()
+    scale = min(224/width, 224/height)
+    size = max(1, round(width*scale)), max(1, round(height*scale))
+    resized = Image.fromarray(np.ascontiguousarray(crop[:, :, ::-1])).resize(size, Image.Resampling.BICUBIC)
+    padded = Image.new('RGB', (224, 224), (0, 0, 0))
+    padded.paste(resized, ((224-size[0])//2, (224-size[1])//2))
+    # Freeze the previous HWC operation order: v2 profiles require identical pixels.
+    expected = np.asarray(padded, np.float32) / np.float32(255)
+    expected = (expected - np.asarray([.485, .456, .406], np.float32)) / np.asarray([.229, .224, .225], np.float32)
+    actual = preprocess_crop(crop)
+    np.testing.assert_array_equal(actual, expected.transpose(2, 0, 1)[None])
+    np.testing.assert_array_equal(source, before)
+    assert actual.flags.c_contiguous and actual.dtype == np.float32
+
+
 @pytest.mark.parametrize('portrait', [False, True])
 def test_preprocess_preserves_both_ends_of_a_long_object_and_does_not_mutate(portrait):
     crop = np.full((40, 200, 3), [0, 200, 0], np.uint8)
@@ -134,6 +155,9 @@ def test_preprocessing_version_changes_without_changing_pinned_weights():
 
 
 def test_real_spatial_features_exclude_padding_and_keep_source_coordinates():
+    if not DEFAULT_MODEL_PATH.is_file():
+        pytest.skip('Explicit preparation has not installed the optional pinned local model')
+    pytest.importorskip('onnxruntime')
     encoder = AppearanceEncoder()
     assert encoder.health()['available'], encoder.health()
     try:
@@ -214,6 +238,16 @@ def test_similar_identities_are_rejected_not_arbitrarily_named():
     assert not result["accepted"] and result["item_id"] is None
     assert result["rejection"] == "ambiguous_identity" and result["gap"] == 0
     assert result["best_score"] == result["second_score"] == 1
+
+
+@pytest.mark.parametrize('sign', [-1, 1])
+def test_score_clipping_preserves_ties_and_item_order_at_unit_tolerance(sign):
+    items = [profile(item_id, embeddings=[[sign*scale] + [0.] * (DIMENSION-1)])
+             for item_id, scale in [('z', 1.0005), ('a', 1.0001)]]
+    result = ProfileMatcher(items, UnitEncoder(), threshold=-1, margin=0).match(None)
+    assert result['best_item_id'] == 'a' and result['second_item_id'] == 'z'
+    assert result['best_score'] == result['second_score'] == sign
+    assert result['gap'] == 0 and result['accepted']
 
 
 def test_runner_up_is_another_item_not_another_reference_photo():

@@ -80,18 +80,20 @@ export default function Scene3D(props: Props) {
     command.current = view
     controls.addEventListener('change', render)
     const markerGroup = new THREE.Group(); stage.add(markerGroup)
-    const knownItems = () => new Set(latest.current.items.map(item => item.id))
     let lastMarkerKey = ''
     const updateMarkers = () => {
       const current = latest.current, now = Date.now()
-      const valid = [...current.markers, ...current.persons].filter(marker => usableSceneMarker(marker, current.scene, knownItems(), now))
-      const key = JSON.stringify([valid, current.selectedItemId, valid.map(marker => markerIsStale(marker, now))])
+      const itemsById = new Map(current.items.map(item => [item.id, item.name]))
+      const valid = [...current.markers, ...current.persons].filter(marker => usableSceneMarker(marker, current.scene, itemsById, now))
+      // Frame counters and timestamps can advance without changing a mesh.
+      const key = JSON.stringify([current.selectedItemId, valid.map(marker => [marker.item_id, marker.person_track_id,
+        marker.position_status, marker.map_position, marker.region, markerIsStale(marker, now), itemsById.get(marker.item_id || '')])])
       if (lastMarkerKey === key) return
       lastMarkerKey = key; disposeSceneObjects(markerGroup)
       for (const marker of valid) {
         const group = createSceneMarker(marker, marker.item_id === current.selectedItemId, scale, now)
         const label = document.createElement('span'); label.className = `scene3d-label${markerIsStale(marker, now) ? ' stale' : ''}`
-        const name = marker.item_id ? current.items.find(item => item.id === marker.item_id)?.name || '注册物品' : '匿名人物'
+        const name = marker.item_id ? itemsById.get(marker.item_id) || '注册物品' : '匿名人物'
         label.textContent = `${name}${marker.region && !marker.map_position ? ' · 仅区域' : marker.position_status === 'mapped_unvalidated' ? ' · 未独立验证' : ''}${markerIsStale(marker, now) ? ' · 已过时' : ''}`
         const object = new CSS2DObject(label)
         if (group.userData.labelPosition instanceof THREE.Vector3) object.position.copy(group.userData.labelPosition)
@@ -118,7 +120,7 @@ export default function Scene3D(props: Props) {
     canvas.addEventListener('webglcontextlost', contextLost); canvas.addEventListener('webglcontextrestored', contextRestored)
     dark.addEventListener('change', theme); document.addEventListener('visibilitychange', render)
     const observer = new ResizeObserver(resize); observer.observe(host)
-    const expiryTimer = window.setInterval(() => { if (document.visibilityState !== 'hidden') updateMarkers() }, 500)
+    const expiryTimer = window.setInterval(() => { if (latest.current.persons.length && document.visibilityState !== 'hidden') updateMarkers() }, 500)
     resize(); view('perspective'); updateMarkers(); setReady(true)
     return () => {
       disposed = true; cancelAnimationFrame(frame); clearInterval(expiryTimer); observer.disconnect()

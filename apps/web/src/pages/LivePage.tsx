@@ -1,5 +1,5 @@
 import { Activity, Camera as CameraIcon, CircleStop, Eye, Hand, Map, Play, Settings2, TriangleAlert } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { VisionFrame } from '../components/VisionFrame'
 import { HandActionsCard } from '../components/HandActionsCard'
@@ -37,7 +37,7 @@ export function LivePage() {
 
   const health = selected?.health
   const running = ['ready', 'running', 'online', 'streaming'].includes((health?.status || '').toLowerCase())
-  const currentState = useMemo(() => events.data[0], [events.data])
+  const currentState = events.data[0]
   const detectionMode = resolveDetectionMode(health?.detection_mode, settings.data.detection_mode, !settings.loading && !settings.error)
 
   async function toggleCamera() {

@@ -217,7 +217,7 @@ def test_camera_connection_test_releases_transient_engine_and_keeps_real_snapsho
 
 def test_camera_connection_message_does_not_attest_network_stream_as_physical(tmp_path,monkeypatch):
     app=create_app(tmp_path/'camera-message-real',runtime_mode='REAL')
-    with TestClient(app) as client:
+    with TestClient(app,base_url='http://127.0.0.1') as client:
         client.cookies.set('om_session',app.state.runtime.sessions.issue())
         runtime=app.state.runtime
         jpeg=cv2.imencode('.jpg',np.full((32,48,3),160,np.uint8))[1].tobytes()
@@ -402,7 +402,7 @@ def test_real_browser_websocket_replayed_demo_video_is_rejected_as_confirmed_his
     video=ROOT/'demo/sample-videos/object-memory-demo.avi'
     assert video.is_file()
     app=create_app(tmp_path/'browser-replay-real',runtime_mode='REAL')
-    with TestClient(app) as real:
+    with TestClient(app,base_url='http://127.0.0.1') as real:
         real.cookies.set('om_session',app.state.runtime.sessions.issue())
         # This security replay contains ArUco markers, not reference photographs.
         # Select its actual detector explicitly; REAL now defaults to photo mode.
@@ -415,7 +415,9 @@ def test_real_browser_websocket_replayed_demo_video_is_rejected_as_confirmed_his
         capture=cv2.VideoCapture(str(video))
         sent=0
         try:
-            with real.websocket_connect(f'/ws/browser-cameras/{camera["id"]}/ingest',headers={'origin':'http://testserver'}) as ws:
+            # TestClient's websocket helper otherwise hardcodes ws://testserver,
+            # even when its HTTP base URL is an explicitly trusted localhost.
+            with real.websocket_connect(f'ws://127.0.0.1/ws/browser-cameras/{camera["id"]}/ingest',headers={'origin':str(real.base_url).rstrip('/')}) as ws:
                 ready=ws.receive_json()
                 assert ready['type']=='ready' and ready['source_type']=='browser_camera' and ready['is_simulated'] is False
                 session_id=runtime.engines[camera['id']].health()['source_session_id']
@@ -683,7 +685,7 @@ def test_global_fps_and_privacy_recording_switch(client):
 def test_video_to_database_search_media(tmp_path):
     assert (ROOT/'demo/sample-videos/object-memory-demo.avi').is_file(),'Run scripts/generate-demo-assets.py first'
     app=create_app(tmp_path/'demo-data',runtime_mode='DEMO')
-    with TestClient(app) as client:
+    with TestClient(app,base_url='http://127.0.0.1') as client:
         client.cookies.set('om_session',app.state.runtime.sessions.issue())
         response=client.post('/api/system/demo-seed')
         assert response.status_code==200,response.text

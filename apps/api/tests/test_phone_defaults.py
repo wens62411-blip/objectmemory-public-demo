@@ -6,7 +6,7 @@ from apps.api.app.main import create_app
 
 def test_real_has_builtin_object_detection_without_seeding_or_registering(tmp_path):
     app = create_app(tmp_path / 'fresh-real', testing=False, runtime_mode='REAL')
-    with TestClient(app) as client:
+    with TestClient(app, base_url='http://127.0.0.1') as client:
         client.cookies.set('om_session', app.state.runtime.sessions.issue())
         assert client.get('/api/settings').json()['detection_mode'] == 'experimental'
         assert client.get('/api/items').json() == []

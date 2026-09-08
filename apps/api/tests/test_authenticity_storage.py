@@ -29,7 +29,7 @@ from scripts.event_audit import audit_database
 @contextmanager
 def client_for(tmp_path: Path, mode="TEST"):
     app=create_app(tmp_path,testing=mode=="TEST",runtime_mode=mode)
-    with TestClient(app) as client:
+    with TestClient(app,base_url='http://127.0.0.1') as client:
         client.cookies.set("om_session",app.state.runtime.sessions.issue())
         assert client.get("/api/session").status_code==200
         yield client
@@ -629,7 +629,7 @@ def test_cross_process_clear_rejects_active_target_then_succeeds_after_release(t
         with pytest.raises(RuntimeModeBusy,match="DEMO 模式已有活动进程"):
             create_app(tmp_path,runtime_mode="DEMO")
         real_app=create_app(tmp_path,runtime_mode="REAL")
-        with TestClient(real_app) as client:
+        with TestClient(real_app,base_url='http://127.0.0.1') as client:
             client.cookies.set("om_session",real_app.state.runtime.sessions.issue())
             blocked=client.post("/api/storage/clear-demo")
             assert blocked.status_code==409 and "活动进程" in blocked.json()["detail"]
@@ -646,7 +646,7 @@ def test_cross_process_clear_rejects_active_target_then_succeeds_after_release(t
 
             # The endpoint must release its temporary target lease as well.
             restarted=create_app(tmp_path,runtime_mode="DEMO")
-            with TestClient(restarted) as demo_client:
+            with TestClient(restarted,base_url='http://127.0.0.1') as demo_client:
                 demo_client.cookies.set("om_session",restarted.state.runtime.sessions.issue())
                 assert demo_client.get("/api/health").status_code==200
     finally:
@@ -656,7 +656,7 @@ def test_cross_process_clear_rejects_active_target_then_succeeds_after_release(t
 
 def test_current_demo_can_clear_itself_and_releases_mode_on_shutdown(tmp_path):
     app=create_app(tmp_path,runtime_mode="DEMO")
-    with TestClient(app) as client:
+    with TestClient(app,base_url='http://127.0.0.1') as client:
         client.cookies.set("om_session",app.state.runtime.sessions.issue())
         runtime=app.state.runtime
         runtime.db.save("items",{"name":"自清演示物品","type":"phone"},"self-demo-item")
@@ -670,7 +670,7 @@ def test_current_demo_can_clear_itself_and_releases_mode_on_shutdown(tmp_path):
         assert not media.exists()
     assert not app.state.runtime.mode_lease.held
     restarted=create_app(tmp_path,runtime_mode="DEMO")
-    with TestClient(restarted) as client:
+    with TestClient(restarted,base_url='http://127.0.0.1') as client:
         client.cookies.set("om_session",restarted.state.runtime.sessions.issue())
         assert client.get("/api/health").status_code==200
 
@@ -779,7 +779,7 @@ def now_for_test():
 
 def test_current_demo_clear_rejects_active_or_closing_firmware_without_mutation(tmp_path):
     app=create_app(tmp_path/"firmware-clear",runtime_mode="DEMO")
-    with TestClient(app) as client:
+    with TestClient(app,base_url='http://127.0.0.1') as client:
         client.cookies.set("om_session",app.state.runtime.sessions.issue())
         runtime=app.state.runtime
         firmware=app.state.firmware_service
@@ -896,7 +896,7 @@ def test_real_search_requires_authoritative_persisted_esp32_attestation(tmp_path
 
 def test_current_demo_clear_rejects_concurrent_firmware_transaction(tmp_path,monkeypatch):
     app=create_app(tmp_path/"firmware-sync-clear",runtime_mode="DEMO")
-    with TestClient(app) as client:
+    with TestClient(app,base_url='http://127.0.0.1') as client:
         client.cookies.set("om_session",app.state.runtime.sessions.issue())
         runtime=app.state.runtime
         firmware=app.state.firmware_service
@@ -1098,7 +1098,7 @@ def test_auditor_requires_existing_qualified_real_manual_reference(tmp_path):
 def test_firmware_service_is_scoped_per_real_and_demo_app(tmp_path):
     real_app=create_app(tmp_path,runtime_mode="REAL")
     demo_app=create_app(tmp_path,runtime_mode="DEMO")
-    with TestClient(real_app) as real_client,TestClient(demo_app) as demo_client:
+    with TestClient(real_app,base_url='http://127.0.0.1') as real_client,TestClient(demo_app,base_url='http://127.0.0.1') as demo_client:
         real_client.cookies.set("om_session",real_app.state.runtime.sessions.issue())
         demo_client.cookies.set("om_session",demo_app.state.runtime.sessions.issue())
         real_response=real_client.post("/api/device-enrollment/create",json={"device_name":"真实板候选","room_name":"客厅"})

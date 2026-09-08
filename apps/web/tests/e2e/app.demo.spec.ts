@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 const execFile = promisify(execFileCallback)
 const projectRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..')
+const python = process.env.OM_E2E_PYTHON || resolve(projectRoot, '.venv', 'Scripts', 'python.exe')
 
 async function optionalHash(path: string) {
   try { return createHash('sha256').update(await readFile(path)).digest('hex') } catch { return null }
@@ -15,7 +16,7 @@ async function optionalHash(path: string) {
 
 async function sqliteEvidence(database: string, eventId?: string) {
   const code = "import json,sqlite3,sys;c=sqlite3.connect(sys.argv[1]);c.row_factory=sqlite3.Row;event=dict(c.execute('SELECT event_id,runtime_mode,source_type,is_simulated,source_session_id,from_zone,to_zone,screenshot_sha256,clip_sha256 FROM movement_events WHERE event_id=?',(sys.argv[2],)).fetchone() or {});state=dict(c.execute('SELECT item_id,current_zone,evidence_event_id,runtime_mode,source_type,is_simulated,status FROM item_current_state WHERE item_id=?',('demo-phone',)).fetchone() or {});print(json.dumps({'events':c.execute('SELECT COUNT(*) FROM movement_events').fetchone()[0],'media':c.execute('SELECT COUNT(*) FROM event_media').fetchone()[0],'event':event,'state':state}));c.close()"
-  const { stdout } = await execFile(resolve(projectRoot, '.venv', 'Scripts', 'python.exe'), ['-c', code, database, eventId || ''], { cwd: projectRoot })
+  const { stdout } = await execFile(python, ['-c', code, database, eventId || ''], { cwd: projectRoot })
   return JSON.parse(stdout) as { events: number; media: number; event: Record<string, unknown>; state: Record<string, unknown> }
 }
 

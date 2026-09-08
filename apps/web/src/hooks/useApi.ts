@@ -9,6 +9,7 @@ export function useApi<T>(path: string | null, initial: T, pollInterval?: number
   const initialValue = useRef(initial)
   initialValue.current = initial
   const hasData = useRef(false)
+  const polling = pollInterval !== undefined
   const pending = useRef<{ path: string; controller: AbortController; work: Promise<void> } | null>(null)
 
   const read = useCallback((signal?: AbortSignal): Promise<void> => {
@@ -59,14 +60,14 @@ export function useApi<T>(path: string | null, initial: T, pollInterval?: number
     setData(initialValue.current)
     setError('')
     setLoading(Boolean(path))
-    if (pollInterval === undefined) void read()
+    if (!polling) void read()
     return () => {
       pending.current?.controller.abort('path_changed')
       pending.current = null
     }
-  }, [read, pollInterval])
-  useVisiblePolling(async (signal) => { await read(signal) }, {
-    enabled: Boolean(path) && pollInterval !== undefined,
+  }, [read, polling])
+  useVisiblePolling(read, {
+    enabled: Boolean(path) && polling,
     intervalMs: pollInterval ?? 5000, timeoutMs: 10_000, immediate: true, resetKey: path,
   })
   return { data, setData, loading, error, reload }

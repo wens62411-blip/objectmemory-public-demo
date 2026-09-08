@@ -61,7 +61,7 @@ class EventMediaWriter:
             ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
             if not ok:
                 return None
-            temporary.write_bytes(encoded.tobytes())
+            temporary.write_bytes(encoded)
             os.replace(temporary, path)
             return path
         except (OSError, cv2.error):
@@ -95,7 +95,7 @@ class EventMediaWriter:
                 try:
                     assert process.stdin is not None
                     for frame in normalized:
-                        process.stdin.write(np.ascontiguousarray(frame).tobytes())
+                        process.stdin.write(np.ascontiguousarray(frame))
                     process.stdin.close()
                     return_code = process.wait(timeout=60)
                     error_file.seek(0)
