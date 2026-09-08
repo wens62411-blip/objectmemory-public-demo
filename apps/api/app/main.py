@@ -476,6 +476,26 @@ class Runtime:
             with self.lock:
                 if self.engines.get(event.get('camera_id')) is not expected_engine:
                     return False
+        commit_guard = None
+        if expected_engine is not None and event.get('detection_mode') == 'experimental':
+            @contextlib.contextmanager
+            def photo_commit_guard():
+                # The vision worker deliberately releases its profile lock
+                # before this callback. Recheck under that same lock at commit,
+                # after slow media encoding, without holding runtime.lock.
+                with expected_engine._profile_lock:
+                    generation = event.get('profile_generation')
+                    if not (type(generation) is int
+                            and generation == expected_engine._applied_profile_revision == expected_engine._profile_revision
+                            and self.engines.get(event['camera_id']) is expected_engine):
+                        raise EvidenceRejected('识别档案已更新，旧版本移动候选未保存。')
+                    yield
+            commit_guard = photo_commit_guard
+            try:
+                with commit_guard():
+                    pass
+            except EvidenceRejected:
+                return False
         camera=self.db.get('cameras',event.get('camera_id',''),unscoped=True)
         if camera:
             source_type,simulated=self.camera_provenance(camera)
@@ -497,6 +517,8 @@ class Runtime:
         elif engine and event.get('source_session_id'):
             event['reconnect_epoch_changed']=True
         try:
+            if commit_guard is not None:
+                return self.event_service.record(event,frame,clip_frames,commit_guard=commit_guard)
             return self.event_service.record(event,frame,clip_frames)
         except EvidenceRejected as exc:
             self.camera_log('info','EVENT_REJECTED',str(exc),(event or {}).get('camera_id'),{'item_id':(event or {}).get('item_id'),'event_type':(event or {}).get('event_type')})
@@ -2116,8 +2138,14 @@ def _build_app(layout,testing,mode,mode_lease,listener_info_provider=None):
     @app.post('/api/items/{item_id}/profile/build')
     def build_recognition_profile(item_id:str):
         runtime.require('items',item_id)
-        runtime.registration.build(item_id)
-        runtime.refresh_recognition(activate=True)
+        built = False
+        try:
+            runtime.registration.build(item_id,on_building=runtime.refresh_recognition)
+            built = True
+        finally:
+            # Refresh even on failure/cancellation, so neither an old preview
+            # matcher nor a pending old event survives a failed generation.
+            runtime.refresh_recognition(activate=built)
         return {**runtime.registration.profile(item_id,dict(runtime.engines)),**response_meta('recognition_profile')}
 
     @app.post('/api/items/{item_id}/reference-capture')

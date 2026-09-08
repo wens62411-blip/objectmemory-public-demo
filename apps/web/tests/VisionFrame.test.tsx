@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VisionFrame } from '../src/components/VisionFrame'
 import type { RecognitionTest } from '../src/types'
@@ -18,6 +18,44 @@ const advance = async (milliseconds = 0) => { await act(async () => { await vi.a
 describe('同帧识别展示Mock合同，不证明真实物品检测', () => {
   beforeEach(() => { vi.useFakeTimers() })
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  it('接收、物品和手部计数分别来自当前模型帧，person不冒充物品身份', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ ...fixture, pipeline_diagnostics: {
+      source_session_id: fixture.source_session_id, source_frame: fixture.source_frame, profile_generation: 3,
+      capture_frames_received: 50, processed_frames: 20, object_model_frames: 19, hand_model_frames: 8,
+      loaded_profile_count: 1, loaded_profile_versions: { phone: 7 }, raw_detection_count: 1, raw_object_count: 0,
+      candidate_count: 0, identity_accepted_count: 0, identity_rejected_count: 0, stage_errors: {}, stage_timings_ms: {},
+    } })))
+    render(<VisionFrame cameraId="cam" continuous={false} registeredItems={[{ id: 'phone', name: '登记手机', type: 'phone', aliases: [], aruco_id: null, ring_enabled: false }]} />); await advance()
+    const panel = screen.getByRole('region', { name: '物品识别链路诊断' })
+    expect(within(panel).getByText('物品模型帧').parentElement).toHaveTextContent('19')
+    expect(within(panel).getByText('手部模型帧').parentElement).toHaveTextContent('8')
+    expect(within(panel).getByText('其中物品候选（不含人）').parentElement).toHaveTextContent('0')
+    expect(within(panel).getByText('本帧身份接受').parentElement).toHaveTextContent('0')
+    expect(panel).toHaveTextContent('登记手机 v7')
+  })
+
+  it('没有诊断字段不伪造零，错帧计数不得放行当前帧', async () => {
+    let data: unknown = fixture
+    vi.stubGlobal('fetch', vi.fn(async () => json(data)))
+    render(<VisionFrame cameraId="cam" continuous={false} />); await advance()
+    expect(screen.getByText(/后端尚未回报物品管线计数/)).toBeInTheDocument()
+    data = { ...fixture, source_frame: 21, pipeline_diagnostics: { source_session_id: 'old', source_frame: 20, loaded_profile_count: 99 } }
+    await advance(500)
+    expect(screen.getByRole('alert')).toHaveTextContent('诊断计数与当前模型帧来源不一致')
+    expect(screen.queryByRole('region', { name: '物品识别链路诊断' })).not.toBeInTheDocument()
+  })
+
+  it('实际解码尺寸不同于坐标帧元数据时撤下画面和全部框', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json(fixture)))
+    const view = render(<VisionFrame cameraId="cam" continuous={false} />); await advance()
+    const image = screen.getByAltText('同帧识别原图')
+    Object.defineProperties(image, { naturalWidth: { value: 1280 }, naturalHeight: { value: 720 } })
+    fireEvent.load(image)
+    expect(screen.getByRole('alert')).toHaveTextContent('原图实际尺寸与识别坐标不一致')
+    expect(view.container.querySelectorAll('rect')).toHaveLength(0)
+    expect(screen.queryByAltText('同帧识别原图')).not.toBeInTheDocument()
+  })
 
   it('默认只画手机等优先候选，已匹配与候选未确认文字不同，不铺满人或床', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json(fixture)))

@@ -17,11 +17,54 @@ export class ApiError extends Error {
 
 type Options = RequestInit & { json?: unknown }
 
+export const SESSION_REQUIRED_EVENT = 'objectmemory:session-required'
+let sessionGeneration = 0
+let sessionRecovery: Promise<boolean> | null = null
+let recoveryBlocked = false
+let recoveryRetryAfter = 0
+
+function requireSession(reason: 'pin' | 'error') {
+  if (recoveryBlocked) return
+  recoveryBlocked = true
+  window.dispatchEvent(new CustomEvent(SESSION_REQUIRED_EVENT, { detail: reason }))
+}
+
+function recoverSession(): Promise<boolean> {
+  if (sessionRecovery) return sessionRecovery
+  if (recoveryBlocked || Date.now() < recoveryRetryAfter) return Promise.resolve(false)
+  // Only this existing server endpoint decides whether a local session may be
+  // issued. A LAN client never submits or guesses a PIN during recovery.
+  sessionRecovery = (async () => {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 5000)
+    try {
+      const response = await fetch('/api/session', { credentials: 'same-origin', signal: controller.signal, cache: 'no-store' })
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) requireSession('pin')
+        else recoveryRetryAfter = Date.now() + 5000
+        return false
+      }
+      const session = await response.json() as { authenticated?: boolean }
+      if (session.authenticated !== true) { requireSession('pin'); return false }
+      sessionGeneration += 1
+      return true
+    } catch {
+      // Keep network failures retryable on a later normal poll, not a tight loop.
+      recoveryRetryAfter = Date.now() + 5000
+      return false
+    } finally { window.clearTimeout(timer) }
+  })().finally(() => { sessionRecovery = null })
+  return sessionRecovery
+}
+
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
   const { json, headers, ...rest } = options
+  const generation = sessionGeneration
+  const sessionEndpoint = path.split('?')[0] === '/api/session'
+  const method = (rest.method || 'GET').toUpperCase()
   let response: Response
   try {
-    response = await fetch(path, {
+    const send = () => fetch(path, {
       credentials: 'same-origin',
       ...rest,
       headers: {
@@ -30,6 +73,17 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
       },
       body: json === undefined ? rest.body : JSON.stringify(json),
     })
+    response = await send()
+    // Never replay POST/PATCH/DELETE (including registration and flashing),
+    // external URLs, or the session endpoint itself. One safe read retry only.
+    if (response.status === 401 && path.startsWith('/api/') && !sessionEndpoint
+      && ['GET', 'HEAD'].includes(method) && !rest.signal?.aborted && !recoveryBlocked) {
+      const recovered = generation !== sessionGeneration || await recoverSession()
+      if (recovered && !rest.signal?.aborted) {
+        response = await send()
+        if (response.status === 401) requireSession('error')
+      }
+    }
   } catch (error) {
     const reason = error instanceof Error && error.message ? `（${error.message}）` : ''
     throw new ApiError(`后端未连接：无法访问物忆本地服务${reason}`, 0)
@@ -44,8 +98,14 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
     }
     throw new ApiError(message, response.status)
   }
-  if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
+  if (response.status === 204 || method === 'HEAD') return undefined as T
+  const result = await response.json()
+  if (sessionEndpoint && result?.authenticated === true) {
+    // Explicit bootstrap/reconnect or user-entered pairing reopens a blocked
+    // recovery. No PIN or session token is retained in this client module.
+    recoveryBlocked = false; recoveryRetryAfter = 0; sessionGeneration += 1
+  }
+  return result as T
 }
 
 export function wsUrl(path: string) {

@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 import { formatTime } from '../lib/format'
 import { isShapeCandidate, recognitionRejection } from '../lib/recognition'
 import { SourceBadge } from './ProvenanceBadge'
-import type { Camera, EventRecord, HandAction, HandInteraction, Item, RecognitionTest, SourceType, Zone } from '../types'
+import type { Camera, EventRecord, FramePipelineDiagnostics, HandAction, HandInteraction, Item, RecognitionTest, SourceType, Zone } from '../types'
 import { ModeNotice } from './ModeNotice'
 import { sourceCategory } from '../lib/provenance'
 import { HandActionSummary } from './HandActionsCard'
@@ -21,6 +21,7 @@ type Snapshot = Pick<EventRecord, 'runtime_mode' | 'source_type' | 'is_simulated
   hand_actions?: HandAction[]
   interactions?: HandInteraction[]
   display_only?: boolean
+  pipeline_diagnostics?: FramePipelineDiagnostics
 }
 const EDGES = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [0, 17], [17, 18], [18, 19], [19, 20]]
 const CATEGORY_NAMES: Record<string, string> = { 'cell phone': '手机', phone: '手机', 'mobile phone': '手机', keys: '钥匙', key: '钥匙', wallet: '钱包', remote: '遥控器', glasses: '眼镜', bed: '床', couch: '沙发', sofa: '沙发', chair: '椅子', person: '人' }
@@ -34,6 +35,31 @@ type FrameBuffers = { slots: [Snapshot | null, Snapshot | null]; visible: 0 | 1 
 type BufferAction = { type: 'clear' } | { type: 'queue'; frame: Snapshot } | { type: 'show'; slot: 0 | 1; key: string }
 const sourceKey = (frame: Snapshot) => `${frame.source_session_id}:${frame.source_frame}`
 const emptyBuffers = (): FrameBuffers => ({ slots: [null, null], visible: null })
+
+function PipelineReadout({ frame, items }: { frame: Snapshot; items: Item[] }) {
+  const diagnostic = frame.pipeline_diagnostics
+  if (!diagnostic) return <p className="photo-help">后端尚未回报物品管线计数；不能根据“看见手”推断物品模型已经运行。</p>
+  if (diagnostic.source_session_id !== frame.source_session_id || diagnostic.source_frame !== frame.source_frame) {
+    return <p role="alert">诊断计数与当前模型帧来源不一致，未使用这些数据判定识别状态。</p>
+  }
+  const count = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : '未回报'
+  const metrics = [
+    ['本会话接收帧', diagnostic.capture_frames_received], ['已处理帧', diagnostic.processed_frames],
+    ['物品模型帧', diagnostic.object_model_frames], ['手部模型帧', diagnostic.hand_model_frames],
+    ['已加载物品档案', diagnostic.loaded_profile_count], ['本帧原始检测', diagnostic.raw_detection_count],
+    ['其中物品候选（不含人）', diagnostic.raw_object_count], ['本帧参与匹配', diagnostic.candidate_count],
+    ['本帧身份接受', diagnostic.identity_accepted_count], ['本帧身份拒绝', diagnostic.identity_rejected_count],
+  ] as const
+  const versions = Object.entries(diagnostic.loaded_profile_versions || {})
+  return <section className="vision-pipeline-diagnostics" aria-label="物品识别链路诊断">
+    <h4>这一帧处理到哪一步</h4>
+    <dl>{metrics.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{count(value)}</dd></div>)}</dl>
+    <p>手和物品使用不同模型。“手部模型帧”增加不代表物品已检出；只有身份接受后才进入跟踪与位置证据判断。</p>
+    {versions.length > 0 ? <p>已加载版本：{versions.map(([id, version]) => `${items.find(item => item.id === id)?.name || '注册物品'} v${count(version)}`).join('、')}</p> : <p>档案加载代次：{count(diagnostic.profile_generation)}（不是单件物品档案版本）</p>}
+    {Object.entries(diagnostic.stage_errors || {}).filter(([, error]) => error).map(([stage, error]) => <p role="alert" key={stage}>{stage}：{error}</p>)}
+    <p className="photo-help">模型帧 {frame.source_frame} · 累计计数只属于当前来源会话，换源或重连后重建；不是准确率或确认移动数。</p>
+  </section>
+}
 function frameBuffers(state: FrameBuffers, action: BufferAction): FrameBuffers {
   if (action.type === 'clear') return state.slots.some(Boolean) ? emptyBuffers() : state
   if (action.type === 'show') {
@@ -169,8 +195,13 @@ export function VisionFrame({ cameraId, showHands = true, active = true, registe
           aria-hidden={decoded && buffers.visible !== index ? true : undefined}
           data-source-frame={image.source_frame} data-source-session={image.source_session_id}
           style={{ visibility: decoded && buffers.visible === index ? 'visible' : 'hidden' }}
-          onLoad={() => {
+          onLoad={event => {
             const key = sourceKey(image)
+            if (`${seen.current.session}:${seen.current.sequence}` !== key) return
+            const decodedImage = event.currentTarget
+            if (decodedImage.naturalWidth > 0 && (decodedImage.naturalWidth !== image.width || decodedImage.naturalHeight !== image.height)) {
+              seen.current.expired = key; setFrame(null); setError('原图实际尺寸与识别坐标不一致，已撤下画面和识别框。'); return
+            }
             if (`${seen.current.session}:${seen.current.sequence}` === key) buffer({ type: 'show', slot: index as 0 | 1, key })
           }}
           onError={() => {
@@ -198,6 +229,7 @@ export function VisionFrame({ cameraId, showHands = true, active = true, registe
       </div>
       {validCandidates.length > 0 && <button className="button ghost small" type="button" aria-expanded={showAll} onClick={() => setShowAll(value => !value)}>{showAll ? '收起其他候选' : `查看其他候选（本帧共 ${validCandidates.length} 个）`}</button>}
       <p className="photo-help">{!primary && <SourceBadge record={{ ...frame, source_type: frame.source_type as SourceType }} />} · 帧 {frame.source_frame} · {formatTime(frame.source_timestamp)} · 框与原图同帧</p>
+      {!frame.display_only && <PipelineReadout frame={frame} items={registeredItems} />}
       {!frame.display_only && <details className="vision-hand-details"><summary>同帧手部分析 · {labels[frame.hand_status?.status || ''] || '状态待报告'}</summary>
         <p>本帧 {frame.hands.length} 只手 · 每只最多 21 个模型关键点</p>
         {(frame.hand_actions || frame.interactions) && ['ready', 'no_hands'].includes(frame.hand_status?.status || '') && <><HandActionSummary hands={frame.hand_status?.status === 'no_hands' ? [] : frame.hand_actions || []} interactions={frame.interactions || []} /><p className="photo-help">手势来自同帧关键点几何解释，不证明触觉抓握或确认放下。</p></>}

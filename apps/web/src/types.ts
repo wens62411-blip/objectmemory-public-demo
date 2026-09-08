@@ -206,6 +206,25 @@ export interface RecognitionProfile {
   model_runtime?: ModelRuntime | null
 }
 
+export interface FramePipelineDiagnostics {
+  source_session_id: string
+  source_frame: number
+  profile_generation: number
+  capture_frames_received: number | null
+  processed_frames: number
+  object_model_frames: number
+  hand_model_frames: number
+  loaded_profile_count: number
+  loaded_profile_versions?: Record<string, number>
+  raw_detection_count: number
+  raw_object_count: number
+  candidate_count: number
+  identity_accepted_count: number
+  identity_rejected_count: number
+  stage_errors: Record<string, string>
+  stage_timings_ms: Record<string, number>
+}
+
 export interface RecognitionTest {
   image_data_url: string
   source_session_id: string

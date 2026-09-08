@@ -12,6 +12,12 @@
 .vision-object-summary .vision-shape-candidate { padding: 8px 10px; border-inline-start: 3px solid var(--yellow); border-radius: 4px; background: var(--yellow-soft); }
 .vision-hand-details { margin-top: 12px; color: var(--muted); font-size: .76rem; line-height: 1.6; }
 .vision-hand-details summary { cursor: pointer; }
+.vision-pipeline-diagnostics { margin-top: 12px; padding: 12px; background: var(--surface-soft); border-radius: 8px; font-size: .76rem; line-height: 1.6; }
+.vision-pipeline-diagnostics h4 { margin: 0 0 8px; }
+.vision-pipeline-diagnostics dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(115px, 1fr)); gap: 8px; }
+.vision-pipeline-diagnostics dt { color: var(--muted); }
+.vision-pipeline-diagnostics dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.vision-pipeline-diagnostics p { margin: 8px 0 0; overflow-wrap: anywhere; }
 .live-layout.live-workspace { grid-template-columns: minmax(0, 1fr); }
 .live-view-single { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
 .live-recognition-pane { min-width: 0; }

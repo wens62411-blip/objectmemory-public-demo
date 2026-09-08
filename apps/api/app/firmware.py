@@ -2050,6 +2050,29 @@ def firmware_ports(http_request: Request):
             "ports": service.discover_ports()}
 
 
+@router.get("/api/firmware/boards")
+def supported_firmware_boards(http_request: Request):
+    """Implementation/build inventory only; never opens serial or infers a board from VID/PID."""
+    service = _required_service(http_request)
+    labels = {"ai_thinker_esp32cam": ("AI Thinker ESP32-CAM", "ESP32-CAM 下载底板或 USB 转串口"),
+              "xiao_esp32s3_sense": ("Seeed XIAO ESP32S3 Sense", "板载 USB-C 数据接口，需 Sense 摄像头扩展板")}
+    rows = []
+    for model, board in FIRMWARE_BOARDS.items():
+        with service.manifest_lock:
+            _, artifacts, _, error = service._firmware_manifest_evidence(model)
+        source_present = all((service.project_root / path).is_file() for path in (
+            "firmware/esp32cam/src/main.cpp", "firmware/esp32cam/include/board_config.h",
+            "firmware/esp32cam/platformio.ini", "scripts/firmware-usb.py"))
+        rows.append({"board_model": model, "label": labels[model][0], "chip": board["chip"],
+            "connection": labels[model][1], "source_present": source_present,
+            "build_verified": bool(artifacts) and not error and all(row.get("hash_verified") is True for row in artifacts),
+            "implemented_steps": ["board_identity", "compile", "fixed_flash_verify", "serial_configure", "network_claim", "camera_read"],
+            "physical_acceptance": "not_asserted_by_catalog", "auto_flash_unknown_device": False})
+    return {"runtime_mode": service.runtime_mode, "source_type": "firmware_capabilities", "is_simulated": False,
+            "boards": rows, "selection_policy": "restore_bound_board_else_explicit_selection",
+            "notice": "仅支持列出的专用板型。已绑定板自动恢复型号；新板必须确认板上标识。串口或芯片相同不代表相机引脚、Flash、PSRAM 兼容；未知板不自动写入。"}
+
+
 @router.get("/api/firmware/manifest")
 def firmware_manifest(http_request: Request, board_model: BoardModel = DEFAULT_BOARD_MODEL):
     """Return verified build evidence plus explicit physical-hardware truth."""

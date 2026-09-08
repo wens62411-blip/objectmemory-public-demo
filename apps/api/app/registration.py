@@ -206,14 +206,18 @@ class RegistrationService:
         return result
 
     def invalidate(self, item_id):
-        previous = self.db.get('item_recognition_profiles', item_id) or {}
-        version = int(previous.get('profile_version') or 0) + 1
+        row = self.db.save('item_recognition_profiles', self._invalidated_profile(item_id), item_id)
         self._loaded_versions.pop(item_id, None)
         self._matcher = None
-        return self.db.save('item_recognition_profiles', {
+        return row
+
+    def _invalidated_profile(self, item_id):
+        previous = self.db.get('item_recognition_profiles', item_id) or {}
+        version = int(previous.get('profile_version') or 0) + 1
+        return {
             'item_id': item_id, 'profile_version': version, 'status': 'images_saved',
             'embeddings': [], 'reference_ids': [], 'dimension': None, 'error': None,
-        }, item_id)
+        }
 
     def confirm_region(self, item_id, reference_id, region, confirmed):
         if confirmed is not True or not isinstance(region, list) or len(region) != 4:
@@ -230,11 +234,15 @@ class RegistrationService:
                 raise RegistrationError('参考照片不属于这个物品。')
             if w*row['width'] < 32 or h*row['height'] < 32:
                 raise RegistrationError('目标细节不足：框内至少需要 32×32 像素，请补充近一些的照片。')
-            updated = self.db.save('item_reference_images', {
-                'region': [x, y, w, h], 'region_confirmed': True,
-                'status': 'region_confirmed', 'features': None,
-            }, reference_id)
-            self.invalidate(item_id)
+            updated, _ = self.db.save_many([
+                ('item_reference_images', {
+                    'region': [x, y, w, h], 'region_confirmed': True,
+                    'status': 'region_confirmed', 'features': None,
+                }, reference_id),
+                ('item_recognition_profiles', self._invalidated_profile(item_id), item_id),
+            ])
+            self._loaded_versions.pop(item_id, None)
+            self._matcher = None
             return self.public_reference(updated)
 
     def preparation(self):
@@ -253,7 +261,8 @@ class RegistrationService:
         refs = item['reference_images']
         version = int(row.get('profile_version') or 0)
         loaded = [camera_id for camera_id, engine in (engines or {}).items()
-                  if row.get('status') == 'ready' and getattr(engine, 'loaded_profile_versions', {}).get(item_id) == version]
+                  if row.get('status') == 'ready' and getattr(engine, 'loaded_profile_versions', {}).get(item_id) == version
+                  and getattr(engine, '_applied_profile_revision', None) == getattr(engine, '_profile_revision', None)]
         # Surface the saved detector evidence; GET does not rerun inference or
         # claim that a failed category proposal invalidates a user's identity.
         from services.vision.detectors.appearance import normalize_category
@@ -270,7 +279,9 @@ class RegistrationService:
             'profile_version': version, 'model_id': row.get('model_id'), 'model_version': row.get('model_version'),
             'reference_count': len(refs), 'ready_reference_count': len(row.get('reference_ids') or []),
             'confirmed_reference_count': sum(bool(ref.get('region_confirmed')) for ref in refs),
-            'loaded_profile_version': version if loaded else self._loaded_versions.get(item_id), 'loaded_camera_ids': loaded,
+            # The registration validator is not a running inference camera.
+            'loaded_profile_version': version if loaded else None, 'loaded_camera_ids': loaded,
+            'validated_profile_version': self._loaded_versions.get(item_id) if row.get('status') == 'ready' else None,
             'error': row.get('error'),
             'quality_warnings': warnings,
             'model_preparation': self.preparation() if preparation is None else preparation,
@@ -288,7 +299,7 @@ class RegistrationService:
             references[row['item_id']].append(row)
         return [{**item, 'reference_images': references[item['id']], 'appearance_profile': profiles.get(item['id'])} for item in items]
 
-    def build(self, item_id):
+    def build(self, item_id, *, on_building=None):
         with self.lock:
             refs = self.db.list('item_reference_images', {'item_id': item_id})
             confirmed = [ref for ref in refs if ref.get('region_confirmed') and ref.get('region')]
@@ -296,7 +307,15 @@ class RegistrationService:
                 raise RegistrationError('至少上传一张照片并确认目标框；保存图片并不等于已建立识别档案。')
             prior = self.db.get('item_recognition_profiles', item_id) or self.invalidate(item_id)
             self.db.save('item_recognition_profiles', {'status': 'building', 'error': None}, item_id)
+            self._loaded_versions.pop(item_id, None)
+            self._matcher = None
+            staged_urls = []
             try:
+                # Tell active engines to invalidate the old generation before
+                # any expensive feature work; a failed build must not leave
+                # the old matcher looking like a newly loaded profile.
+                if on_building is not None:
+                    on_building()
                 health = self.encoder.health()
                 if not health.get('available'):
                     # An explicit build retry after local preparation may open
@@ -319,7 +338,7 @@ class RegistrationService:
                         'status': 'building', 'model_id': health['model_id'],
                         'model_version': health['model_version'],
                     }, item_id)
-                embeddings, reference_ids = [], []
+                embeddings, reference_ids, records = [], [], []
                 for ref in confirmed:
                     content = self._path(ref['path']).read_bytes()
                     frame = cv2.imdecode(np.frombuffer(content, np.uint8), cv2.IMREAD_COLOR)
@@ -332,27 +351,53 @@ class RegistrationService:
                     ok, encoded = cv2.imencode('.jpg', crop, [cv2.IMWRITE_JPEG_QUALITY, 95])
                     if not ok:
                         raise RegistrationError('目标裁剪保存失败。')
-                    crop_url = self._write(f"{ref['id']}-crop.jpg", encoded.tobytes())
-                    self.db.save('item_reference_images', {'crop_path': crop_url, 'status': 'featured', 'features': {'backend': health['model_id'], 'model_version': health['model_version'], 'vector': vector}}, ref['id'])
+                    # Never overwrite an earlier generation before the complete
+                    # replacement validates and commits. Originals are untouched.
+                    crop_url = self._write(f"{ref['id']}-{uuid4().hex}-crop.jpg", encoded.tobytes())
+                    staged_urls.append(crop_url)
+                    records.append(('item_reference_images', {'crop_path': crop_url, 'status': 'featured',
+                        'features': {'backend': health['model_id'], 'model_version': health['model_version'], 'vector': vector}}, ref['id']))
                     embeddings.append(vector)
                     reference_ids.append(ref['id'])
-                self.db.save('item_recognition_profiles', {
+                candidate = {
                     'item_id': item_id, 'profile_version': int(prior['profile_version']), 'status': 'ready',
                     'model_id': health['model_id'], 'model_version': health['model_version'],
                     'dimension': len(embeddings[0]), 'embeddings': embeddings,
                     'reference_ids': reference_ids, 'error': None,
-                }, item_id)
+                }
                 # Materialize the same matcher contract used by live inference.
+                # Validate in memory while concurrent readers still see building,
+                # not a ready row whose matcher may subsequently reject it.
                 from services.vision.detectors.appearance import ProfileMatcher
-                matcher = ProfileMatcher(self.items_for_inference(), self.encoder)
+                item = self.db.get('items', item_id)
+                if not item:
+                    raise RegistrationError('物品已不存在，未保存识别档案。')
+                matcher = ProfileMatcher([{**item, 'appearance_profile': candidate}], self.encoder)
                 if matcher.loaded_profile_versions.get(item_id) != int(prior['profile_version']):
                     raise RegistrationError('特征已生成，但识别服务拒绝该档案版本，未标记可识别。')
+                self.db.save_many([*records, ('item_recognition_profiles', candidate, item_id)])
                 self._matcher = matcher
                 self._loaded_versions[item_id] = int(prior['profile_version'])
-            except Exception as exc:
-                self.db.save('item_recognition_profiles', {'status': 'failed', 'embeddings': [], 'error': str(exc)}, item_id)
+            except BaseException as exc:
+                for url in staged_urls:
+                    try:self._path(url).unlink(missing_ok=True)
+                    except OSError:pass
+                self.db.save('item_recognition_profiles', {'status': 'failed', 'embeddings': [],
+                    'reference_ids': [], 'dimension': None, 'error': str(exc)}, item_id)
                 self._loaded_versions.pop(item_id, None)
+                if not isinstance(exc, Exception):
+                    raise
                 raise RegistrationError(f'建立档案失败：{exc}') from exc
+            # Only retire known derived crops after the replacement transaction;
+            # failed builds retain all prior files, and unknown user paths stay.
+            for ref in confirmed:
+                old_url = ref.get('crop_path')
+                if old_url and str(old_url).endswith('-crop.jpg'):
+                    try:
+                        old_path = self._path(old_url)
+                        if old_path.name.startswith(ref['id'] + '-'):
+                            old_path.unlink(missing_ok=True)
+                    except (OSError, RegistrationError):pass
         return self.profile(item_id)
 
     def delete_reference(self, item_id, reference_id):

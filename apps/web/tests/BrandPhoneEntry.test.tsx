@@ -6,6 +6,7 @@ import { AppShell } from '../src/components/AppShell'
 import { ToastProvider } from '../src/components/Toast'
 import { SettingsPage } from '../src/pages/SettingsPage'
 import { RuntimeProvider } from '../src/contexts/RuntimeContext'
+import { api } from '../src/lib/api'
 
 const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { 'Content-Type': 'application/json' } })
 const settings = { detection_mode: 'aruco', inference_fps: 5, static_seconds: 2, pre_seconds: 5, post_seconds: 5, retention_days: 7, save_clips: true, show_hands: true, privacy_mode: true, record_events: true }
@@ -112,5 +113,22 @@ describe('Mock 组件契约：品牌导航与手机入口（不是实机可达�
     fireEvent.click(screen.getByRole('button', { name: '重新连接' }))
     await screen.findByRole('textbox', { name: '8 位主机访问码' })
     expect(screen.queryByText(/还没有连上这台物忆电脑/)).not.toBeInTheDocument()
+  })
+
+  it('已打开页面的LAN会话过期回到访问码页，不自动提交配对', async () => {
+    let expired = false
+    const fetcher = vi.spyOn(globalThis,'fetch').mockImplementation(async input => {
+      if (input === '/api/session') return json({authenticated:!expired,local:false})
+      if (expired) return new Response(JSON.stringify({detail:'会话已失效'}),{status:401})
+      return json(String(input) === '/api/runtime-config' ? {runtime_mode:'REAL'} : String(input) === '/api/health' ? {status:'ok',stats:{items:0}} : [])
+    })
+    render(<MemoryRouter><App /></MemoryRouter>)
+    await screen.findByText('REAL · 真实模式')
+    expired = true
+    await act(async () => { await expect(api('/api/runtime-config')).rejects.toMatchObject({status:401}) })
+    await screen.findByRole('textbox',{name:'8 位主机访问码'})
+    expect(screen.getByRole('alert')).toHaveTextContent('会话已过期')
+    expect(screen.queryByRole('navigation',{name:'主导航'})).not.toBeInTheDocument()
+    expect(fetcher.mock.calls.some(([,init]) => init?.method === 'POST')).toBe(false)
   })
 })

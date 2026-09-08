@@ -95,11 +95,21 @@ def test_preprocess_application_whole_crop_rgb_normalization_and_nchw():
 
 
 @pytest.mark.parametrize('shape', [(224, 224), (53, 171), (181, 47)])
-def test_preprocess_preserves_v2_bits_for_strided_inputs(shape):
+@pytest.mark.parametrize('layout', ['contiguous', 'roi', 'strided', 'reversed_channels', 'transposed', 'broadcast'])
+def test_preprocess_preserves_v2_bits_for_memory_layouts(shape, layout):
     height, width = shape
     source = np.random.default_rng(11).integers(0, 256, (height*2, width*2, 3), dtype=np.uint8)
-    crop = source[::2, ::2, ::-1]
+    crop = {
+        'contiguous': source.copy(),
+        'roi': source[1:height+1, 1:width+1],
+        'strided': source[::2, ::2],
+        'reversed_channels': source[::2, ::2, ::-1],
+        'transposed': source.transpose(1, 0, 2),
+        'broadcast': np.broadcast_to(source[:1, :1], (height, width, 3)),
+    }[layout]
     before = source.copy()
+    crop_before = crop.copy()
+    height, width = crop.shape[:2]
     scale = min(224/width, 224/height)
     size = max(1, round(width*scale)), max(1, round(height*scale))
     resized = Image.fromarray(np.ascontiguousarray(crop[:, :, ::-1])).resize(size, Image.Resampling.BICUBIC)
@@ -111,6 +121,7 @@ def test_preprocess_preserves_v2_bits_for_strided_inputs(shape):
     actual = preprocess_crop(crop)
     np.testing.assert_array_equal(actual, expected.transpose(2, 0, 1)[None])
     np.testing.assert_array_equal(source, before)
+    np.testing.assert_array_equal(crop, crop_before)
     assert actual.flags.c_contiguous and actual.dtype == np.float32
 
 

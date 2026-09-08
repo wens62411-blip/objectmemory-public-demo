@@ -52,6 +52,8 @@ describe('Mock UI 契约：照片注册与现场测试（不证明实物识别�
     const { requests } = setup()
     await waitLoaded()
     expect(screen.getByText('照片已保存 · 等待建立档案')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: '下一步注册操作' })).toHaveTextContent('照片已经保存')
+    expect(screen.getByLabelText('照片注册进度').querySelector('[aria-current="step"]')).toHaveTextContent('2 确认目标')
     expect(screen.queryByText('已启用当前档案 · 识别效果待现场验证')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '建立 / 更新识别档案' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '确认这是我的物品' })).toBeDisabled()
@@ -61,6 +63,7 @@ describe('Mock UI 契约：照片注册与现场测试（不证明实物识别�
     expect(requests.mock.calls.some(([, init]) => init?.method === 'POST' || init?.method === 'PATCH')).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: '确认这是我的物品' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '建立 / 更新识别档案' })).toBeEnabled())
+    expect(screen.getByRole('status', { name: '下一步注册操作' })).toHaveTextContent('下一步建立识别档案')
     const patch = requests.mock.calls.find(([, init]) => init?.method === 'PATCH')!
     expect(patch[0]).toBe(`/api/items/${phone.id}/reference-images/ref-one`)
     expect(JSON.parse(String(patch[1]?.body))).toEqual({ region: [0.6, 0.2, 0.2, 0.5], confirmed: true })

@@ -34,6 +34,15 @@ async function openConnectionStep(source?: string) {
 describe('Mock 组件单测：摄像头被测配置绑定', () => {
   afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+  it('开发板入口明确仅支持AI Thinker与XIAO且只能去设备中心核验', async () => {
+    const requests = setup()
+    await openConnectionStep('ESP32 / XIAO 开发板')
+    expect(screen.getByText(/当前仅适配 AI Thinker ESP32-CAM 与 Seeed XIAO ESP32S3 Sense/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '前往设备中心' })).toHaveAttribute('href', '/devices')
+    expect(screen.getByRole('button', { name: '测试连接' })).toBeDisabled()
+    expect(requests.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false)
+  })
+
   it('测试编号 0 后改为 1 必须重新测试，改回 0 也不能复用旧成功', async () => {
     const fetchMock = setup()
     await openConnectionStep()

@@ -72,6 +72,43 @@ def location_result(item,events,runtime_mode='REAL',current_state=None):
     status=latest['event_type'] if latest else 'unknown'
     place=lambda e: f"{e.get('room_name') or '未命名房间'} · {e.get('zone_name') or '未定义区域'}"
     observed=(current_state or {}).get('last_observed') or {}
+    state_time=(current_state or {}).get('last_seen_at')
+    if observed and _evidence_instant(state_time)>_evidence_instant(observed.get('observed_at')):
+        # A newly committed movement advances the authoritative current-state
+        # coordinates but deliberately keeps the independent observation photo.
+        # Its older photo clock must not hide a newer move, occlusion or exit.
+        # Project the current location without rewriting the persisted snapshot
+        # or assigning the old picture a new frame/time/identity proof.
+        bound_event=current_evidence if (
+            current_evidence
+            and current_evidence.get('camera_id')==current_state.get('current_camera')
+            and current_evidence.get('source_session_id')==current_state.get('source_session_id')
+            and _evidence_instant(current_evidence.get('timestamp_end') or current_evidence.get('timestamp_start'))==_evidence_instant(state_time)
+        ) else {}
+        # Legacy proximity-only rows had no separate observation clock/frame.
+        # Falling back to their state clock is not proof of a newer frame. Keep
+        # that downgraded "nearby" hint only when no event or source change can
+        # supersede it; never carry co-motion/release evidence across frames.
+        legacy_proximity = (
+            observed.get('holding_status') == 'nearby'
+            and (observed.get('interaction') or {}).get('reason') == 'legacy_proximity_only'
+            and not observed.get('observed_at') and observed.get('source_frame') is None
+            and not current_evidence_id
+            and all(not observed.get(old) or observed.get(old) == current_state.get(new)
+                    for old, new in (('camera_id', 'current_camera'), ('source_session_id', 'source_session_id')))
+        )
+        observed={**observed,
+            'observed_at':state_time,'camera_id':current_state.get('current_camera'),
+            'camera_name':bound_event.get('camera_name'),
+            'room_name':current_state.get('current_room'),'zone_name':current_state.get('current_zone'),
+            'position':current_state.get('current_position'),'confidence':current_state.get('confidence'),
+            'source_session_id':current_state.get('source_session_id'),
+            'source_frame':bound_event.get('source_frame_end'),
+            'detection_mode':bound_event.get('detection_mode'),'identity_evidence':None,
+            'holding_status':'nearby' if legacy_proximity else 'not_established',
+            'interaction':observed.get('interaction') if legacy_proximity else None,
+            'image_status':'previous_observation' if observed.get('screenshot_path') else 'not_available',
+        }
     current_time=observed.get('observed_at') or (current_state or {}).get('last_seen_at')
     confirmed_time=(confirmed or {}).get('timestamp_end') or (confirmed or {}).get('timestamp_start')
     current_status=str((current_state or {}).get('status') or '').lower()

@@ -8,6 +8,7 @@ import math
 import os
 import re
 import threading
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -838,14 +839,14 @@ class EventService:
         self._assert_replay_compatible(existing[0], event)
         return existing[0]
 
-    def record(self, event: dict[str, Any], frame=None, clip_frames=None):
-        return self._record(event, frame, clip_frames, manual_authorized=False)
+    def record(self, event: dict[str, Any], frame=None, clip_frames=None, *, commit_guard=None):
+        return self._record(event, frame, clip_frames, manual_authorized=False, commit_guard=commit_guard)
 
     def record_manual_correction(self, event: dict[str, Any]):
         """Persist a correction only from the authenticated administrator route."""
         return self._record(event, None, None, manual_authorized=True)
 
-    def _record(self, event: dict[str, Any], frame=None, clip_frames=None, *, manual_authorized: bool):
+    def _record(self, event: dict[str, Any], frame=None, clip_frames=None, *, manual_authorized: bool, commit_guard=None):
         event = dict(event or {})
         # Normalize the complete identity before lookup, preflight deduplication,
         # idempotency hashing, evidence validation, or persistence.  Otherwise
@@ -873,6 +874,22 @@ class EventService:
         if manual_authorized and supplied_type != "manual_correction":
             raise EvidenceRejected("管理员纠正入口只接受 manual_correction。")
         manual = bool(manual_authorized)
+        expected_profile = None
+        if self.mode is RuntimeMode.REAL and not manual and event.get('detection_mode') == 'experimental':
+            identity = event.get('identity_evidence')
+            profile = self.db.get('item_recognition_profiles', item['id']) or {}
+            if not (
+                isinstance(identity, dict) and identity.get('accepted') is True
+                and identity.get('item_id') == item['id']
+                and type(identity.get('profile_version')) is int
+                and identity['profile_version'] > 0 and profile.get('status') == 'ready'
+                and all(identity.get(key) and identity.get(key) == profile.get(key)
+                        for key in ('profile_version', 'model_id', 'model_version'))
+            ):
+                raise EvidenceRejected('照片物品事件缺少当前可用档案的身份确认，未写入历史。')
+            expected_profile = {key: identity[key] for key in ('profile_version', 'model_id', 'model_version')}
+            event['placement_evidence'] = {**(event.get('placement_evidence') or {}),
+                'identity_evidence': dict(identity), 'profile_generation': event.get('profile_generation')}
         validation_run_id = str(event.get("validation_run_id") or "").strip()
         candidate_acceptance_run = (
             self.db.get("acceptance_runs", validation_run_id)
@@ -1231,10 +1248,15 @@ class EventService:
                     prior=next(iter(self.db.list('events',{'event_id':previous['evidence_event_id']},limit=1)),None)
                     if prior and prior.get('final_status')=='confirmed_placed':
                         current_state['last_confirmed_placement']=self._placement_summary(prior)
-            row, inserted = self.db.insert_event_bundle_idempotent(
-                payload, media_rows, current_state, f"{self.mode.value}:{payload['item_id']}",
-                acceptance_run_id=str(payload.get("validation_run_id") or "") or None,
-            )
+            # Only the short final transaction holds the engine generation
+            # guard. Encoding never holds that lock, and no DB transaction is
+            # opened before it: lock order is generation -> SQLite, not reverse.
+            with commit_guard() if commit_guard is not None else nullcontext():
+                row, inserted = self.db.insert_event_bundle_idempotent(
+                    payload, media_rows, current_state, f"{self.mode.value}:{payload['item_id']}",
+                    acceptance_run_id=str(payload.get("validation_run_id") or "") or None,
+                    expected_profile=expected_profile,
+                )
             if coordination_acquired:
                 coordination_lock.release()
                 coordination_acquired = False
@@ -1309,6 +1331,13 @@ class EventService:
         if observation_verified is not True:
             return None
         track = dict(track or {})
+        # Display tracking and scene hypotheses are not detector observations.
+        # Keep this boundary at persistence too, even if an internal caller
+        # accidentally forwards the admission keyword with a preview payload.
+        if (track.get('visual_only') is True or track.get('observation_evidence') is False
+                or str(track.get('state') or track.get('status') or '').lower() in {'predicted', 'prediction', 'preview'}
+                or str(track.get('evidence_type') or '').lower() in {'predicted', 'prediction', 'hypothesis', 'inferred'}):
+            return None
         camera = self.db.get("cameras", str(track.get("camera_id") or ""), unscoped=True)
         item = self.db.get("items", str(track.get("item_id") or ""), unscoped=True)
         if not camera or not item:
@@ -1406,7 +1435,10 @@ class EventService:
                                    and last_observed.get('screenshot_source_session_id')==source_session)
                 moved=(not image_same_source or screenshot_position is None or position is None
                        or math.dist(position,screenshot_position)>=float(settings.get('observation_snapshot_move_distance',.04)))
-                due=(not last_observed.get('screenshot_path') or moved and stable_ready)
+                # The first verified observation in each source session needs
+                # evidence from that session, including while the item is held.
+                # Subsequent same-session replacements still require settling.
+                due=(not last_observed.get('screenshot_path') or not image_same_source or moved and stable_ready)
                 if moved and not due:
                     # Preserve the older evidence with its own frame, position,
                     # and clock. Never relabel it as the current moving frame.

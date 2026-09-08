@@ -1,6 +1,7 @@
 .photo-registration { padding: 20px 25px 28px; }
 .photo-registration-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 0; margin: 0 0 22px; list-style: none; color: var(--green); font-size: .76rem; font-weight: 700; }
 .photo-registration-steps li { padding: 9px 0; border-bottom: 2px solid var(--line); }
+.photo-registration-steps li[aria-current="step"] { border-color: var(--green); color: var(--ink); }
 .registration-section { padding: 24px 0; border-top: 1px solid var(--line); }
 .registration-section > header { display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 12px; margin-bottom: 15px; }
 .registration-section h3 { margin: 0; font-size: 1rem; }

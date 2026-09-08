@@ -343,6 +343,7 @@ class Database:
         current_state_id: str,
         *,
         acceptance_run_id: str | None = None,
+        expected_profile: dict | None = None,
     ) -> tuple[dict[str, Any], bool]:
         """Atomically persist one event, its media registry, and current state.
 
@@ -372,6 +373,18 @@ class Database:
 
         def operation() -> tuple[dict[str, Any], bool]:
             with self.connect() as conn:
+                if expected_profile is not None:
+                    conn.execute('BEGIN IMMEDIATE')
+                    # Serialize the identity check with profile invalidation;
+                    # no registration write can slip between it and the bundle.
+                    profile = conn.execute(
+                        'SELECT status,profile_version,model_id,model_version FROM item_recognition_profiles WHERE id=?',
+                        (event.get('item_id'),),
+                    ).fetchone()
+                    if (profile is None or profile['status'] != 'ready'
+                            or any(profile[key] != expected_profile.get(key)
+                                   for key in ('profile_version', 'model_id', 'model_version'))):
+                        raise sqlite3.IntegrityError('photo profile changed before event commit')
                 inserted = conn.execute(event_sql, list(event_insert.values())).rowcount == 1
                 row = conn.execute(
                     f'SELECT * FROM "movement_events" WHERE "{unique_field}"=?',

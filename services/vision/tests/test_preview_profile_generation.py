@@ -19,6 +19,8 @@ def bare_engine():
     engine = VisionEngine.__new__(VisionEngine)
     engine._profile_lock = threading.RLock()
     engine._latest_lock = threading.RLock()
+    engine._pending_lock = threading.RLock()
+    engine.pending = []
     engine._stop_event = threading.Event()
     engine.capture = SimpleNamespace(health=lambda: {'status': 'ready'})
     engine._profile_revision = 0

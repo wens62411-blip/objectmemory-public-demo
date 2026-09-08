@@ -144,6 +144,10 @@ class VisionEngine:
         self._issued_reference_patch_detections = {}
         self.loaded_profile_versions = {}
         self._recognition_error = None
+        self._reference_patch_error = None
+        self._raw_model_detections = []
+        self._pipeline_counts = {'processed_frames': 0, 'object_model_frames': 0, 'hand_model_frames': 0}
+        self._recognition_stage_errors = {}
         self._recognition_snapshot = None
         from .preview_tracking import PreviewTracker
         self.preview_tracker = PreviewTracker(self.settings.get('preview_tracking'))
@@ -471,11 +475,17 @@ class VisionEngine:
             self.loaded_profile_versions = dict(self.reference_matcher.loaded_profile_versions) if available else {}
             self._recognition_error = self._appearance_encoder.health().get('error')
             self.reference_patches = None
+            self._reference_patch_error = None
             if available and self.settings.get('reference_patch_enabled', True):
                 from .detectors.reference_patch import ReferencePatchProposer
-                self.reference_patches = ReferencePatchProposer(self.items, self._appearance_encoder,
-                    reference_root=Path(self.settings.get('reference_root') or self.repo_root / 'data/registered-items'),
-                    settings=self.settings.get('reference_patch'))
+                try:
+                    self.reference_patches = ReferencePatchProposer(self.items, self._appearance_encoder,
+                        reference_root=Path(self.settings.get('reference_root') or self.repo_root / 'data/registered-items'),
+                        settings=self.settings.get('reference_patch'))
+                except Exception as exc:
+                    # Exemplar-localization failure is not permission to discard
+                    # a valid category detector + CLS identity matcher.
+                    self._reference_patch_error = f'参考局部定位加载失败：{exc}'
         except Exception as exc:
             self.reference_matcher = None
             self.reference_patches = None
@@ -496,6 +506,13 @@ class VisionEngine:
             self.preview_tracker.invalidate()
             with self._latest_lock:
                 self._tracking_snapshot = None
+        # Unsubmitted photo episodes must not outlive the identity generation.
+        # Already submitted jobs perform the same check immediately before the
+        # backend callback, whose transaction independently checks the profile.
+        with self._pending_lock:
+            self.pending = [pending for pending in self.pending
+                if pending.event.get('detection_mode') != 'experimental'
+                or pending.event.get('profile_generation') == self._profile_revision]
 
     def _apply_profile_updates(self):
         with self._profile_lock:
@@ -549,13 +566,40 @@ class VisionEngine:
                 self.loaded_profile_versions = {}
 
     def recognition_snapshot(self):
-        if self.capture.health().get('status')=='error':
+        capture = self.capture.health()
+        if capture.get('status')=='error':
             return None
         with self._profile_lock:
             snapshot = self._recognition_snapshot
             if snapshot is None or self._applied_profile_revision != self._profile_revision or self._stop_event.is_set() or time.monotonic() - snapshot['created_at'] > 3:
                 return None
+            if capture.get('capture_thread_alive') and (
+                capture.get('status') not in {'online', 'ready'}
+                or capture.get('source_session_id') != snapshot.get('source_session_id')
+                or capture.get('reconnect_epoch') != snapshot.get('reconnect_epoch')
+            ):
+                return None  # A recent result can still belong to the pre-reconnect source.
             return deepcopy(snapshot)
+
+    def _recognition_diagnostics(self, packet: FramePacket) -> dict:
+        """Same-frame bounded facts, never a second inference or generated boxes."""
+        capture = self.capture.health()
+        accepted = sum(row.get('accepted') is True for row in self._recognition_candidates)
+        value = {'source_session_id': packet.source_session_id, 'source_frame': packet.sequence,
+            'profile_generation': self._applied_profile_revision,
+            'capture_frames_received': capture.get('source_frame_sequence')
+                if capture.get('source_session_id') == packet.source_session_id else None,
+            **self._pipeline_counts, 'loaded_profile_count': len(self.loaded_profile_versions),
+            'loaded_profile_versions': dict(self.loaded_profile_versions),
+            'raw_detection_count': len(self._raw_model_detections),
+            'raw_object_count': sum(row['category'] != 'person' for row in self._raw_model_detections),
+            'candidate_count': len(self._recognition_candidates), 'identity_accepted_count': accepted,
+            'identity_rejected_count': len(self._recognition_candidates) - accepted,
+            'stage_errors': dict(self._recognition_stage_errors), 'stage_timings_ms': dict(self._stage_timings)}
+        if self.diagnostic_mode:
+            value['raw_detections'] = deepcopy(self._raw_model_detections[:100])
+            value['raw_detections_truncated'] = len(self._raw_model_detections) > 100
+        return value
 
     def tracking_snapshot(self):
         """One latest measured preview, not a persisted observation or event."""
@@ -1276,6 +1320,7 @@ class VisionEngine:
                 self.zone_manager.replace([])
         self._active_source_session = session_id
         self._active_reconnect_epoch = epoch
+        self._pipeline_counts = {'processed_frames': 0, 'object_model_frames': 0, 'hand_model_frames': 0}
         self.observation_gate.reset()
         self._reset_hand_actions()
         self._reset_persons()
@@ -1371,6 +1416,10 @@ class VisionEngine:
         self._apply_scene_update()
         revision = self._applied_profile_revision
         self._switch_source_session(packet)
+        self._pipeline_counts['processed_frames'] += 1
+        self._raw_model_detections = []
+        self._recognition_stage_errors = {}
+        self._stage_timings = {}
         self._last_frame_sequence = packet.sequence
         frame = packet.frame
         height, width = frame.shape[:2]
@@ -1406,10 +1455,23 @@ class VisionEngine:
                 if self.experimental is None or not self.experimental.health().get('available'):
                     raise RuntimeError((self.experimental.health() if self.experimental else {}).get('error') or '候选物体模型未加载')
                 detections = self.experimental.detect(frame)
+                self._pipeline_counts['object_model_frames'] += 1
+                self._raw_model_detections = [{'category': det.label, 'raw_class_id': det.raw_id,
+                    'bbox': [det.bbox[0]/width, det.bbox[1]/height, det.bbox[2]/width, det.bbox[3]/height],
+                    'coordinate_space': 'source_normalized_xywh', 'detector_score': float(det.confidence)}
+                    for det in detections]
                 person_detections = [detection for detection in detections if detection.label == 'person']
                 self._stage_timings['object_detection'] = round((time.perf_counter()-stage_started)*1000, 2)
                 reference_started = time.perf_counter()
-                detections = self._supplement_reference_patches(frame, detections)
+                try:
+                    detections = self._supplement_reference_patches(frame, detections)
+                    if self.reference_patches is not None:
+                        self._reference_patch_error = self.reference_patches.health().get('error')
+                except Exception as exc:
+                    self._issued_reference_patch_detections.clear()
+                    self._reference_patch_error = f'参考局部定位处理失败：{exc}'
+                if self._reference_patch_error:
+                    self._recognition_stage_errors['reference_patch_localization'] = self._reference_patch_error
                 self._stage_timings['reference_patch_localization'] = round((time.perf_counter()-reference_started)*1000, 2)
                 shape_started = time.perf_counter()
                 try:
@@ -1420,14 +1482,18 @@ class VisionEngine:
                     # A failed auxiliary proposal must not erase a valid model
                     # candidate or trigger a guessed identity.
                     self._phone_shape_error = f'外形候选暂不可用：{exc}'
+                    self._recognition_stage_errors['phone_shape_proposal'] = self._phone_shape_error
                 self._stage_timings['phone_shape_proposal'] = round((time.perf_counter()-shape_started)*1000, 2)
                 match_started = time.perf_counter()
                 self._assign_reference_identities(frame, detections)
+                if self._recognition_error:
+                    self._recognition_stage_errors['identity_matching'] = self._recognition_error
                 self._stage_timings['identity_matching'] = round((time.perf_counter()-match_started)*1000, 2)
             except Exception as exc:
                 detections = []
                 self._recognition_candidates = []
                 self._recognition_error = f'照片识别处理失败：{exc}'
+                self._recognition_stage_errors['object_recognition'] = self._recognition_error
         else:
             detections = self.aruco.detect(frame)
             self._stage_timings['object_detection'] = round((time.perf_counter()-stage_started)*1000, 2)
@@ -1443,9 +1509,12 @@ class VisionEngine:
         hand_started = time.perf_counter()
         try:
             hands = self.hands.detect(frame, timestamp_ms=round(packet.monotonic_time*1000)) if isinstance(self.hands, MediaPipeHandDetector) else self.hands.detect(frame)
+            if self._safe_hand_health().get('available'):
+                self._pipeline_counts['hand_model_frames'] += 1
         except Exception as exc:
             # Hand assistance failing must not erase valid object observations.
             self.hands.error = f'手部处理失败：{exc}'
+            self._recognition_stage_errors['hands'] = self.hands.error
             hands = []
         self._stage_timings['hands'] = round((time.perf_counter()-hand_started)*1000, 2)
         actions_started = time.perf_counter()
@@ -1502,6 +1571,7 @@ class VisionEngine:
                 self._recognition_snapshot = {
                     'jpeg': raw_jpeg.tobytes(), 'created_at': time.monotonic(),
                     'source_session_id': packet.source_session_id, 'source_frame': packet.sequence,
+                    'reconnect_epoch': packet.reconnect_epoch,
                     'source_timestamp': datetime.fromtimestamp(packet.wall_time, timezone.utc).isoformat(), 'width': frame.shape[1], 'height': frame.shape[0],
                     'runtime_mode': self.runtime_mode, 'source_type': self.source_type, 'is_simulated': self.is_simulated,
                     'model': {**(self._appearance_encoder.health() if self._appearance_encoder else {}),
@@ -1521,6 +1591,7 @@ class VisionEngine:
                         'timestamp_ms': getattr(hand,'timestamp_ms',None),
                     } for hand in hands],
                     'hand_status': deepcopy(hand_health),
+                    'pipeline_diagnostics': self._recognition_diagnostics(packet),
                 }
                 self.preview_tracker.offer(frame, self._recognition_snapshot['candidates'],
                     packet.source_session_id, packet.sequence, packet.monotonic_time, profile_generation=revision)
@@ -2310,6 +2381,8 @@ class VisionEngine:
             "clip_path": None,
             "clip_sha256": None,
             "detection_mode": track.detection_mode,
+            "identity_evidence": deepcopy(track.metadata.get('identity_evidence')) if track.detection_mode == 'experimental' else None,
+            "profile_generation": self._applied_profile_revision if track.detection_mode == 'experimental' else None,
             "human_review_status": "unreviewed",
             "created_by": "vision_engine",
             "pinned": False,
@@ -2457,6 +2530,9 @@ class VisionEngine:
 
     def _finalize(self, pending: _PendingEvent, stopped_early: bool) -> None:
         validation_run_id = str(pending.event.get("validation_run_id") or "")
+        if not self._event_profile_is_current(pending.event):
+            self._last_error = '物品档案已更新，已取消旧档案的待保存移动事件'
+            return
         if stopped_early:
             # A source switch/stop invalidates continuity and may truncate the
             # promised post-roll.  Do not persist a confirmed event whose clip
@@ -2546,9 +2622,19 @@ class VisionEngine:
                     run.mark_event_emitted()
                     self._notify_acceptance_status_locked(run)
 
+    def _event_profile_is_current(self, event: dict) -> bool:
+        if event.get('detection_mode') != 'experimental':
+            return True
+        generation = event.get('profile_generation')
+        with self._profile_lock:
+            return (type(generation) is int
+                    and generation == self._applied_profile_revision == self._profile_revision)
+
     def _persist_event(self, pending: _PendingEvent) -> object:
         event_id = pending.event["event_id"]
         try:
+            if not self._event_profile_is_current(pending.event):
+                raise RuntimeError('物品档案已更新；旧身份媒体任务未提交后端')
             # The callback receives raw in-process frames only. EventService is
             # the sole owner of media destinations, hashes and provenance
             # bindings, so a vision payload cannot point at unrelated files.

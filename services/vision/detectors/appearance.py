@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
 from PIL import Image
 
@@ -51,7 +52,7 @@ def preprocess_crop(crop: np.ndarray) -> np.ndarray:
         raise ValueError("appearance crop aspect ratio exceeds the bounded input ratio")
     scale = min(224 / width, 224 / height)
     size = (max(1, round(width * scale)), max(1, round(height * scale)))
-    rgb = Image.fromarray(np.ascontiguousarray(crop[:, :, ::-1]))
+    rgb = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
     resized = rgb.resize(size, Image.Resampling.BICUBIC)
     padded = Image.new('RGB', (224, 224), (0, 0, 0))
     padded.paste(resized, ((224 - size[0]) // 2, (224 - size[1]) // 2))

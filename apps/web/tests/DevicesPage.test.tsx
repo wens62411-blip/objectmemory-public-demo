@@ -16,6 +16,7 @@ function setup(session: object | null, options: { usbStatus?: object; historical
     }
     if (path === '/api/firmware/ports') return json({ platformio: { available: true }, ports: options.ports ?? [{ device: 'COM7', eligible: true, description: 'Mock USB bridge; no physical-board proof' }] })
     if (path.startsWith('/api/firmware/status')) return json(options.firmwareStatus || {})
+    if (path === '/api/firmware/boards') return json({ boards: [], notice: '测试能力表，非物理设备证据' })
     if (path === '/api/firmware/network-status') return json(options.networkStatus || { status: 'unavailable', connections: [] })
     if (path === '/api/firmware/auto-usb') return json(options.usbStatus || { runtime_mode: 'REAL', enabled: false, message: 'Mock 未绑定' })
     if (path === '/api/firmware/auto-usb/recover' && init?.method === 'POST') return json({ id: 'accepted-recovery', job_type: 'usb_recover', status: 'queued' })

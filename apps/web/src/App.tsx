@@ -1,6 +1,6 @@
 import { lazy, useCallback, useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { api, ApiError } from './lib/api'
+import { api, ApiError, SESSION_REQUIRED_EVENT } from './lib/api'
 import { ToastProvider } from './components/Toast'
 import { AppShell } from './components/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
@@ -43,6 +43,15 @@ function SessionGate({ children }: { children: React.ReactNode }) {
       })
   }, [])
   useEffect(checkSession, [checkSession])
+  useEffect(() => {
+    const expired = (event: Event) => {
+      setPin('')
+      if ((event as CustomEvent).detail === 'pin') { setError('会话已过期，请重新输入主机访问码。'); setState('pin') }
+      else { setError('会话未能恢复，请重新连接；未自动重放任何保存或设备操作。'); setState('error') }
+    }
+    window.addEventListener(SESSION_REQUIRED_EVENT, expired)
+    return () => window.removeEventListener(SESSION_REQUIRED_EVENT, expired)
+  }, [])
 
   async function pair(event: React.FormEvent) {
     event.preventDefault()

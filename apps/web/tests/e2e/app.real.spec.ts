@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { chromium, expect, test, type APIRequestContext } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { execFile as execFileCallback } from 'node:child_process'
 import { readFile, realpath, stat } from 'node:fs/promises'
@@ -84,8 +84,20 @@ test('照片注册真实 UI → FastAPI → DINO → SQLite，不以合成纹理
   await page.reload()
   await page.getByRole('article').filter({ has: page.getByRole('heading', { name: item.name, exact: true }) }).getByRole('button', { name: '管理照片 / 测试识别' }).click()
   await expect(page.getByRole('button', { name: '目标区域已确认', exact: true })).toBeVisible()
+  for (const width of [1360, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/items')
+    await page.getByRole('article').filter({ has: page.getByRole('heading', { name: item.name, exact: true }) }).getByRole('button', { name: '管理照片 / 测试识别' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText('档案版本', { exact: true }).locator('..')).toContainText(String(profile.profile_version))
+    await expect(page.getByRole('status', { name: '下一步注册操作' })).toContainText('注册档案已建立')
+    const sameProfile = await json<{ profile_version: number }>(await request.get(`/api/items/${item.id}/profile`))
+    expect(sameProfile.profile_version).toBe(profile.profile_version)
+    const dimensions = await page.evaluate(() => ({ viewport: innerWidth, content: document.documentElement.scrollWidth }))
+    expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport + 1)
+  }
   await json(await request.delete(`/api/items/${item.id}`))
-  console.log('[PHOTO_REAL_E2E] real HTTP + actual local model + persisted 384D; generated image only; no camera opened; no movement created')
+  console.log('[PHOTO_REAL_E2E] real HTTP + actual local model + persisted 384D; same registered profile at desktop1360/mobile390 viewports (not Android device); generated image only; no camera opened; no movement created')
 })
 
 test('真实 FastAPI + 独立 SQLite：REAL 无视频源始终是 0 事件', async ({ page, request }) => {
@@ -345,4 +357,40 @@ test('手动作真实 HTTP：离线缓存为空、显示与分析独立保存、
   expect(await json(await request.get(`/api/cameras/${cameraId}/actions`))).toMatchObject({ fresh: false, hands: [], interactions: [], reason: 'camera_not_running' })
   console.log(`[HAND_ACTIONS_REAL_EVIDENCE] ${JSON.stringify({ cache_read_only: true, physical_camera_opened: false, mock_core_api: false,
     sqlite_counts: before, settings_persisted: { show_hands: false, hand_detection_enabled: true }, screenshots })}`)
+})
+
+test('浏览器采集上传实际JPEG与ACK；只替代硬件输入，不Mock业务API', async ({ request, baseURL }) => {
+  await json(await request.get('/api/session'))
+  const camera = await json<{ id: string }>(await request.post('/api/cameras', { data: {
+    name: '浏览器合成输入链路测试', source_type: 'browser', source: 'browser', enabled: true,
+  } }))
+  // Chromium's synthetic capture device is explicitly NOT a physical phone.
+  // getUserMedia, canvas JPEG encoding, WebSocket, FastAPI and SQLite stay real.
+  const browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] })
+  try {
+    const context = await browser.newContext({ permissions: ['camera'] })
+    const page = await context.newPage()
+    await page.goto(`${baseURL}/live?camera=${camera.id}`)
+    const capture = page.getByRole('region', { name: '浏览器直连摄像头' })
+    await capture.getByRole('button', { name: '授权并选择摄像头', exact: true }).click()
+    const uploaded = capture.locator('dl > div').filter({ has: page.getByText('已上传', { exact: true }) }).locator('dd')
+    await expect.poll(async () => Number((await uploaded.innerText()).match(/\d+/)?.[0] || 0)).toBeGreaterThanOrEqual(3)
+    const snapshot = await request.get(`/api/cameras/${camera.id}/frame`)
+    expect(snapshot.ok()).toBe(true)
+    expect((await snapshot.body()).length).toBeGreaterThan(100)
+    expect(snapshot.headers()['content-type']).toContain('image/jpeg')
+    await expect(capture.getByText('后端接收中', { exact: true })).toBeVisible()
+    expect(await json<unknown[]>(await request.get(`/api/events?camera_id=${camera.id}`))).toEqual([])
+    await capture.getByRole('button', { name: '停止浏览器画面', exact: true }).click()
+    await expect.poll(async () => (await json<{ health: { status: string } }>(await request.get(`/api/cameras/${camera.id}`))).health.status).toBe('stopped')
+    expect(await page.locator('video[aria-label="浏览器摄像头实时预览"]').evaluate(node => (node as HTMLVideoElement).srcObject)).toBeNull()
+    await page.reload()
+    await expect(capture.getByRole('button', { name: '授权并选择摄像头', exact: true })).toBeVisible()
+    expect((await json<{ health: { status: string } }>(await request.get(`/api/cameras/${camera.id}`))).health.status).toBe('stopped')
+    console.log('[BROWSER_CAPTURE_E2E] synthetic Chromium camera only; actual getUserMedia/JPEG/ACK/FastAPI; stopped and reload does not resume; not Android or physical identification proof')
+    await context.close()
+  } finally {
+    await browser.close()
+    await request.delete(`/api/cameras/${camera.id}`)
+  }
 })

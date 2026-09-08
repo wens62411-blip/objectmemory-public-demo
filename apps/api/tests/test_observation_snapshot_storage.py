@@ -73,6 +73,22 @@ def test_claimed_payload_proof_cannot_store_observation_image(context):
     assert runtime.db.count('item_current_state')==runtime.db.count('event_media')==0
 
 
+@pytest.mark.parametrize('display_flags', [
+    {'visual_only': True}, {'observation_evidence': False},
+    {'state': 'PREDICTED'}, {'evidence_type': 'predicted'},
+])
+def test_display_prediction_cannot_advance_last_seen_even_with_internal_keyword(context, display_flags):
+    runtime, item, _, client = context
+    before = observe(context, content=jpeg())
+    media_before = runtime.db.list('event_media')
+    assert observe(context, 30, frame=100, position=(.9, .9), content=jpeg(220), **display_flags) is None
+    assert runtime.db.get('item_current_state', f"TEST:{item['id']}") == before
+    assert runtime.db.list('event_media') == media_before
+    result = client.get(f"/api/items/{item['id']}/last-location").json()
+    assert result['last_observed']['timestamp_start'] == before['last_seen_at']
+    assert result['last_observed']['final_position'] == before['current_position']
+
+
 def test_stationary_five_minutes_updates_state_without_replacing_snapshot(context):
     runtime,*_=context
     initial=observe(context,content=jpeg())['last_observed']
@@ -89,6 +105,28 @@ def test_stationary_five_minutes_updates_state_without_replacing_snapshot(contex
     assert runtime.event_service.media_path(initial['screenshot_path']).exists()
     assert runtime.db.count('event_media')==1
     assert runtime.db.count('movement_events')==0
+
+
+def test_new_source_first_verified_observation_replaces_old_session_photo_without_hand_wait(context):
+    runtime, item, _, _ = context
+    previous = observe(context, content=jpeg())
+    old_path = runtime.event_service.media_path(previous['last_observed']['screenshot_path'])
+    new = observe(context, 30, frame=100, position=(.7, .6), content=jpeg(220),
+                  source_session_id='fresh-source-session', state='CARRIED', hand_near=True, speed=.3)
+    snapshot = new['last_observed']
+    assert new['status'] == 'last_seen'
+    assert snapshot['screenshot_source_session_id'] == 'fresh-source-session'
+    assert snapshot['screenshot_source_frame'] == 100
+    assert snapshot['screenshot_observed_at'] == new['last_seen_at']
+    assert snapshot['screenshot_path'] != previous['last_observed']['screenshot_path']
+    assert snapshot['image_status'] == 'available' and not old_path.exists()
+    assert runtime.db.count('event_media') == 1 and runtime.db.count('movement_events') == 0
+    # Subsequent carried frames in that session keep its one first screenshot;
+    # movement does not create a new screenshot on every frame.
+    next_state = observe(context, 31, frame=101, position=(.8, .6), content=jpeg(240),
+                         source_session_id='fresh-source-session', state='CARRIED', hand_near=True, speed=.3)
+    assert next_state['last_observed']['screenshot_path'] == snapshot['screenshot_path']
+    assert runtime.db.count('event_media') == 1
 
 
 def test_carried_updates_coordinates_but_saves_new_image_only_after_settled_hand_away(context):

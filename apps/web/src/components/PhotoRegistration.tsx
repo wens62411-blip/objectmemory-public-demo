@@ -215,6 +215,13 @@ export function PhotoRegistration({ item, onClose, onChanged }: { item: Item; on
   const selected = references.find((reference) => reference.id === selectedId) || references[0]
   const camera = cameras.find((value) => value.id === cameraId)
   const confirmedCount = references.filter((reference) => reference.region_confirmed).length
+  const registrationStep = !references.length ? 0 : confirmedCount !== references.length || regionDirty ? 1 : profile?.registration_status !== 'ready' ? 2 : 3
+  const nextAction = [
+    '还没有参考照片。先选择照片并保存；手机拍一张是上传文件，不会开启持续摄像头采集。',
+    '照片已经保存。请逐张框选并确认目标；完成后点击“建立 / 更新识别档案”。',
+    '目标区域已确认。下一步建立识别档案，照片才会参与当前模型匹配。',
+    '注册档案已建立。下一步在选定相机前换个视角测试；实时加载与物品身份接受仍以后台结果为准。',
+  ][registrationStep]
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const controller = signal ? null : new AbortController()
@@ -345,7 +352,8 @@ export function PhotoRegistration({ item, onClose, onChanged }: { item: Item; on
 
   return <Modal title={`${item.name} · 照片与识别`} description="让照片真正参与本地识别；先确认目标，再用不同视角测试。" wide onClose={() => { if (!operation.current) onClose() }}>
     <div className="photo-registration" aria-busy={Boolean(busy)}>
-      <ol className="photo-registration-steps"><li>1 添加照片</li><li>2 确认目标</li><li>3 建立档案</li><li>4 现场测试</li></ol>
+      <ol className="photo-registration-steps" aria-label="照片注册进度">{['添加照片', '确认目标', '建立档案', '现场测试'].map((label, index) => <li key={label} aria-current={registrationStep === index ? 'step' : undefined}>{index + 1} {label}</li>)}</ol>
+      {!loading && <p className="photo-notice" role="status" aria-label="下一步注册操作">{nextAction}</p>}
       {loading && <Loading label="正在读取已保存的照片和识别档案…" />}
       {error && <p className="inline-error" role="alert">{error}</p>}
       {notice && <p className="photo-notice" role="status">{notice}</p>}

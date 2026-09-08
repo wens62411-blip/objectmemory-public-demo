@@ -11,6 +11,7 @@ import { useRuntime } from '../contexts/RuntimeContext'
 import { deviceHardwareCategory } from '../lib/provenance'
 import { AutoUsbSetup, usbBoardLabels, type UsbBoardModel } from '../components/AutoUsbSetup'
 import { DeviceNetworkCheck } from '../components/DeviceNetworkCheck'
+import { FirmwareCompatibility } from '../components/FirmwareCompatibility'
 import { useVisiblePolling } from '../hooks/useVisiblePolling'
 
 interface PortsResponse { platformio: { available: boolean | null; version?: string | null; python?: string | null }; ports: FirmwarePort[] }
@@ -186,7 +187,8 @@ export function DevicesPage() {
         <section className="panel install-card">
           <div className="section-heading"><div><p className="eyebrow">一键安装并绑定</p><h2>{usbBoardLabels[boardModel]}</h2></div><Badge tone={ports.data.platformio.available ? 'success' : 'warning'}>{platformLabel}</Badge></div>
           <Field label="开发板型号" hint="已绑定的板卡自动恢复对应型号；新板请按板上标识选择，USB 串口出现不代表板型已验证。"><select value={boardModel} disabled={Boolean(activeJob)} onChange={(event) => { boardManuallySelected.current = true; setBoardModel(event.target.value as UsbBoardModel) }}>{Object.entries(usbBoardLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-          <ol className="install-flow"><li className="active"><Usb /><div><strong>检测 USB 串口</strong><span>只显示系统枚举的端口</span></div></li><li><Download /><div><strong>编译并刷入通用固件</strong><span>不把 Wi-Fi 写进源码</span></div></li><li><Wifi /><div><strong>串口安全配网</strong><span>敏感字段不会写入日志</span></div></li><li><ShieldCheck /><div><strong>一次性配对与绑定</strong><span>设备令牌只在签发时返回一次</span></div></li></ol>
+          <FirmwareCompatibility />
+          <ol className="install-flow"><li className="active"><Usb /><div><strong>检测 USB 串口</strong><span>只显示系统枚举的端口</span></div></li><li><Download /><div><strong>编译并刷入专用固件</strong><span>板型分别校验，不通刷</span></div></li><li><Wifi /><div><strong>串口安全配网</strong><span>敏感字段不会写入日志</span></div></li><li><ShieldCheck /><div><strong>一次性配对与绑定</strong><span>设备令牌只在签发时返回一次</span></div></li></ol>
           {ports.error ? <ErrorState message={ports.error} onRetry={ports.reload} /> : <form className="install-form" onSubmit={install}>
             {!realHardwareMode && <div className="inline-banner info"><AlertTriangle />当前 {runtime.mode} 模式不允许 USB 刷写、安装或物理设备配网，也不会接触物理串口。请切换到 REAL 模式并重启服务；固件编译仍可独立执行。</div>}
             <Field label="USB 串口" hint={portsPending ? '正在检测这台电脑的 USB 串口…' : eligiblePorts.length ? '请选择当前板卡或下载底板对应的端口。' : '当前没有检测到可刷写硬件；可以先单独编译固件。'}><select value={form.port} onChange={(event) => setForm((value) => ({ ...value, port: event.target.value }))}><option value="">{portsPending ? '检测中…' : eligiblePorts.length ? '请选择 USB 串口' : '未检测到可用端口'}</option>{ports.data.ports.map((port) => <option key={port.device} value={port.device} disabled={port.eligible === false}>{port.device} · {port.description || '串口'}{port.eligible === false ? `（${port.rejection_reason || '不可用'}）` : ''}</option>)}</select></Field>

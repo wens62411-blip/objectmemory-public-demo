@@ -181,6 +181,24 @@ def test_stable_observations_update_one_state_and_one_verified_image_without_his
     pipeline.assert_no_history_or_clips_with_one_verified_current_image()
 
 
+@pytest.mark.parametrize('display_flags', [{'visual_only': True}, {'observation_evidence': False}])
+def test_preview_flag_cannot_reclassify_a_valid_engine_callback_as_last_seen(pipeline, display_flags):
+    before = pipeline.stable()
+    media = pipeline.media_snapshot()
+    # Produce the next genuine generated-marker detector/state-machine proof,
+    # but route its callback ourselves to exercise the exact persistence boundary.
+    pipeline.engine.on_track = lambda payload: pipeline.payloads.append(deepcopy(payload))
+    pipeline.feed(2.0)
+    candidate = {**pipeline.payloads[-1], **display_flags}
+    assert candidate['observation_verified'] is True
+    assert candidate['last_seen'] > before['last_seen_at']
+    pipeline.allow_next_same_state_write()
+    pipeline.runtime.track(candidate, expected_engine=pipeline.engine)
+    assert pipeline.state() == before
+    assert pipeline.media_snapshot() == media
+    pipeline.assert_no_history_or_clips_with_one_verified_current_image()
+
+
 def test_occluded_and_lost_bypass_write_throttle_and_preserve_verified_sighting(pipeline):
     verified = pipeline.stable()
     # All calls execute in far less than the 1-second persistence throttle;
