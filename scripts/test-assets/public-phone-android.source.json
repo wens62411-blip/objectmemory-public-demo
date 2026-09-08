@@ -1,0 +1,17 @@
+{
+  "title": "Android.webm",
+  "source_page": "https://commons.wikimedia.org/wiki/File:Android.webm",
+  "source_page_revision": "https://commons.wikimedia.org/w/index.php?title=File:Android.webm&oldid=1001666264",
+  "download_url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/7/75/Android.webm/Android.webm.480p.vp9.webm",
+  "author": "嘉傑 & Google",
+  "filmed_date": "2019-10-15",
+  "license_selected": "CC-BY-SA-4.0",
+  "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "displayed_software_notice": "Android source is separately described as Apache-2.0 and Google artwork as CC-BY-3.0 on the source page. Preserve attribution; no endorsement is implied.",
+  "local_file": "data/test-assets/public-phone-android.webm",
+  "bytes": 2727604,
+  "sha256": "b24a2eaaeef6f3de2f067b56396747ac685e1cbac016ac5feb6ecaa74fe224b2",
+  "adaptations": "Official Wikimedia 480p VP9 transcode. Verification scripts extract original decoded frames and separate time ranges, without compositing or pasting reference crops.",
+  "scope": "Public filmed phones, not the user's phone or a live physical camera; test video remains simulated provenance in ObjectMemory.",
+  "visual_review": "Decoded frames 30 and 240 inspected locally: three physical phones on a light surface; screen animations change. No physical object relocation or multiview identity trial is established by this clip."
+}

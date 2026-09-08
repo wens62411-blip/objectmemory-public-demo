@@ -1,0 +1,19 @@
+{
+  "title": "Lotti+smartphone 01 (1) ies.webm",
+  "source_page": "https://commons.wikimedia.org/wiki/File:Lotti%2Bsmartphone_01_(1)_ies.webm",
+  "source_page_revision": "https://commons.wikimedia.org/w/index.php?title=File:Lotti%2Bsmartphone_01_(1)_ies.webm&oldid=1073647376",
+  "download_url": "https://upload.wikimedia.org/wikipedia/commons/transcoded/7/7f/Lotti%2Bsmartphone_01_%281%29_ies.webm/Lotti%2Bsmartphone_01_%281%29_ies.webm.480p.vp9.webm",
+  "author": "Frank Vincentz",
+  "license_selected": "CC-BY-SA-3.0",
+  "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+  "local_file": "data/test-assets/public-phone-lotti.webm",
+  "bytes": 2043973,
+  "sha256": "c2f8e37ef38c7204bc15f3a911e238edd43c00b1f48f06458291f2e389b0ed48",
+  "adaptations": "Official Wikimedia 480p VP9 transcode. Integration extracts reference frames at 20 and 35 seconds and re-encodes held-out video 40..55 seconds with no compositing, pasted crops or invented frames. The first single-20-second-view attempt failed and remains separately recorded. Preserve this attribution with derived frames/video.",
+  "visual_review": "Frames at 1,10,20,30,60,70 seconds inspected locally. A physical HTC One phone rests on patterned carpet; a cat approaches and occludes it, and phone angle changes in later frames. Not a human pickup/release trial, not large cross-zone movement, not the user's phone.",
+  "reference_seconds": 20,
+  "reference_region_xywh_normalized": [0.3337236534, 0.4333333333, 0.3032786885, 0.2666666667],
+  "additional_references": [{"seconds": 35, "region": [0.3208430913, 0.4375, 0.3161592506, 0.3375]}],
+  "heldout_seconds": [40, 55],
+  "runtime_provenance": "TEST/video_file/is_simulated=true even though the source footage depicts real photographed objects"
+}

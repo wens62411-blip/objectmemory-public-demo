@@ -1,0 +1,14 @@
+{
+  "evidence_type": "SYNTHETIC_TEST_PLAYBACK",
+  "camera": {"name": "客厅测试回放", "room_name": "客厅", "source_type": "video", "source": "demo/sample-videos/object-memory-demo.mp4"},
+  "zones": [
+    {"id": "zone-desk", "name": "桌面", "priority": 10, "points": [[0.02,0.17],[0.46,0.17],[0.46,0.94],[0.02,0.94]]},
+    {"id": "zone-sofa-right", "name": "沙发右侧", "priority": 10, "points": [[0.50,0.17],[0.99,0.17],[0.99,0.94],[0.50,0.94]]},
+    {"id": "zone-floor", "name": "地面", "priority": 20, "points": [[0,0.91],[1,0.91],[1,1],[0,1]]}
+  ],
+  "items": [
+    {"name": "我的手机", "aruco_id": 1},
+    {"name": "我的钥匙", "aruco_id": 2},
+    {"name": "蓝色钱包", "aruco_id": 3}
+  ]
+}

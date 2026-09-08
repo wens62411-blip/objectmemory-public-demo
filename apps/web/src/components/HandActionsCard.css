@@ -1,0 +1,15 @@
+.hand-actions-card { padding: 18px; margin-top: 16px; min-width: 0; }
+.hand-actions-card > header, .hand-actions-card > header > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.hand-actions-card > header { justify-content: space-between; }
+.hand-actions-card h2 { margin: 0; font-size: 1rem; }
+.hand-actions-card > header > div > svg { color: var(--green); }
+.hand-actions-card > header .badge { white-space: normal; line-height: 1.5; text-align: left; }
+.hand-actions-boundary, .hand-actions-empty { margin: 12px 0; color: var(--muted); line-height: 1.6; font-size: .78rem; }
+.hand-actions-empty a, .hand-actions-settings { color: var(--green); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; margin: 0 4px; }
+.hand-actions-settings { display: inline-block; font-size: .8rem; }
+.hand-postures, .hand-interactions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); gap: 8px; list-style: none; margin: 12px 0; padding: 0; }
+.hand-postures li, .hand-interactions li { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 9px; padding: 11px; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 9px; font-size: .8rem; overflow-wrap: anywhere; }
+.hand-postures small, .hand-interactions small { color: var(--muted); width: 100%; font-size: .72rem; line-height: 1.6; }
+.hand-interactions li { flex-direction: column; align-items: flex-start; border-style: dashed; }
+.hand-actions-time { color: var(--muted); line-height: 1.6; display: block; font-size: .7rem; }
+@media (max-width: 640px) { .hand-actions-card { padding: 14px; } .hand-actions-card > header { align-items: flex-start; } }

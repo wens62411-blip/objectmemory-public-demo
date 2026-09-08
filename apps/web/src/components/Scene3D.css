@@ -1,0 +1,17 @@
+.scene3d { min-width: 0; }
+.scene3d-toolbar { display: flex; flex-wrap: wrap; gap: 5px; padding: 12px; border-bottom: 1px solid var(--line); }
+.scene3d-toolbar button { min-width: 40px; min-height: 36px; border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; color: var(--ink); background: var(--surface); cursor: pointer; font-size: .75rem; }
+.scene3d-toolbar button:hover:not(:disabled) { background: var(--green-soft); border-color: var(--green); }
+.scene3d-toolbar button:disabled { cursor: not-allowed; opacity: .5; }
+.scene3d-viewport { position: relative; min-width: 0; height: clamp(340px, 42vw, 520px); overflow: hidden; background: #eef1e9; }
+.scene3d-viewport > canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.scene3d-label-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.scene3d-label { display: block; max-width: 150px; padding: 4px 7px; border-radius: 5px; font-size: 11px; color: #183b2d; background: #fffffff0; border: 1px solid #709a87; text-align: center; overflow-wrap: anywhere; }
+.scene3d-label.stale { color: #5c6661; background: #e4e8e5dc; border-style: dashed; }
+.scene3d-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 30px; text-align: center; color: var(--muted); line-height: 1.7; margin: 0; font-size: .85rem; }
+.scene3d-empty strong { color: var(--ink); font-size: 1rem; }
+.scene3d-help, .scene3d-legend { margin: 0; padding: 10px 14px; color: var(--muted); font-size: .7rem; line-height: 1.65; }
+.scene3d-legend { display: flex; flex-wrap: wrap; gap: 3px 12px; border-top: 1px solid var(--line); }
+@media (prefers-color-scheme: dark) { .scene3d-viewport { background: #15251f; } .scene3d-label { color: #eef8ef; background: #16382cee; border-color: #73a58c; } }
+@media (max-width: 640px) { .scene3d-viewport { height: 360px; } .scene3d-toolbar button { min-height: 42px; flex: 1; } }
+@media (prefers-reduced-motion: reduce) { .scene3d * { transition: none; } }

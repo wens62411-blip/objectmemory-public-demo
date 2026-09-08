@@ -1,0 +1,49 @@
+{
+  "model_id": "onnx-community/dinov2-small",
+  "revision": "8b1f705a3a7f6f062f6bdd21986c1583d3ef105d",
+  "model_version": "8b1f705a3a7f6f062f6bdd21986c1583d3ef105d:onnx-fp32-cls-rgb-bicubic-fit224-blackpad-l2-v2",
+  "repository_file": "onnx/model.onnx",
+  "default_path": "data/models/dinov2-small.onnx",
+  "bytes": 88532934,
+  "sha256": "f22797eabf810a75e41de68d378541ebea372122b25c4ce3ef25ff618250c20a",
+  "lfs_sha256": "f22797eabf810a75e41de68d378541ebea372122b25c4ce3ef25ff618250c20a",
+  "dimension": 384,
+  "input_name": "pixel_values",
+  "output_name": "last_hidden_state",
+  "feature": "CLS token (token 0), L2 normalized; cosine similarity is not probability",
+  "preprocessing": {
+    "scope": "application_full_object_crop",
+    "notice": "Application-level complete-object preprocessing; NOT the upstream BitImageProcessor center-crop default. Rebuild v1 profile features from preserved confirmed reference regions before use.",
+    "input": "uint8 BGR HWC crop",
+    "convert": "RGB",
+    "resize_longest_edge": 224,
+    "preserve_aspect_ratio": true,
+    "size_rounding": "Python round, minimum 1 pixel",
+    "resample": "Pillow BICUBIC (3)",
+    "center_crop": false,
+    "padding_color_rgb": [0, 0, 0],
+    "padding_alignment": "center; odd extra pixel goes right/bottom",
+    "rotation_augmentation": false,
+    "max_input_pixels": 16777216,
+    "max_aspect_ratio": 32,
+    "rescale_factor": 0.00392156862745098,
+    "mean": [0.485, 0.456, 0.406],
+    "std": [0.229, 0.224, 0.225],
+    "output": "float32 NCHW [1,3,224,224]",
+    "letterbox": true
+  },
+  "license": {
+    "base_model": "Apache-2.0",
+    "base_model_card": "https://huggingface.co/facebook/dinov2-small/raw/main/README.md",
+    "upstream_revision": "7764ea0f912e53c92e82eb78a2a1631e92725fc8",
+    "upstream_license_url": "https://raw.githubusercontent.com/facebookresearch/dinov2/7764ea0f912e53c92e82eb78a2a1631e92725fc8/LICENSE",
+    "onnx_export_note": "ONNX Community card links facebook/dinov2-small as base_model, but does not separately declare a license field. This records the verified upstream/base license rather than claiming a separate export license."
+  },
+  "sources": [
+    "https://huggingface.co/api/models/onnx-community/dinov2-small/tree/8b1f705a3a7f6f062f6bdd21986c1583d3ef105d/onnx",
+    "https://huggingface.co/onnx-community/dinov2-small/raw/8b1f705a3a7f6f062f6bdd21986c1583d3ef105d/preprocessor_config.json",
+    "https://huggingface.co/onnx-community/dinov2-small/raw/8b1f705a3a7f6f062f6bdd21986c1583d3ef105d/config.json",
+    "https://raw.githubusercontent.com/huggingface/transformers/v4.45.0/src/transformers/models/bit/image_processing_bit.py",
+    "https://pypi.org/pypi/onnxruntime/1.22.1/json"
+  ]
+}

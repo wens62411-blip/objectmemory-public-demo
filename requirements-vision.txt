@@ -1,0 +1,2 @@
+# Optional hand landmarks. Installation failure must not block stable tag mode.
+mediapipe==1.0.1

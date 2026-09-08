@@ -1,0 +1,2 @@
+# Build CLI only. Never start PlatformIO's optional web server.
+platformio==6.1.19

@@ -1,0 +1,19 @@
+.camera-connection-notice {
+  padding: 1rem;
+  border: 1px solid var(--border, #526267);
+  border-left: 4px solid var(--accent, #247b68);
+  border-radius: 8px;
+  background: var(--surface, transparent);
+  color: inherit;
+}
+.camera-connection-notice p { margin: .6rem 0; line-height: 1.6; }
+.camera-operation-status { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; line-height: 1.6; }
+.camera-diagnostic-controls { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; margin: 1rem 0; }
+.camera-diagnostic-controls label { display: grid; gap: .35rem; }
+.camera-diagnostic-progress { padding: 1rem; border: 1px solid var(--border, #526267); border-radius: 8px; }
+.camera-diagnostic-progress progress { width: 100%; accent-color: #247b68; }
+.camera-diagnostic-progress p { margin: .5rem 0; line-height: 1.6; }
+.camera-diagnostic-error { color: var(--danger, #b03939); white-space: pre-wrap; }
+@media (prefers-color-scheme: dark) { .camera-diagnostic-error { color: var(--danger, #ffadad); } }
+@media (max-width: 600px) { .camera-diagnostic-controls > *, .camera-operation-status .button { width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .camera-operation-status .spin { animation: none; } }

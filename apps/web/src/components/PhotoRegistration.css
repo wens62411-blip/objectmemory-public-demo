@@ -1,0 +1,89 @@
+.photo-registration { padding: 20px 25px 28px; }
+.photo-registration-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 0; margin: 0 0 22px; list-style: none; color: var(--green); font-size: .76rem; font-weight: 700; }
+.photo-registration-steps li { padding: 9px 0; border-bottom: 2px solid var(--line); }
+.registration-section { padding: 24px 0; border-top: 1px solid var(--line); }
+.registration-section > header { display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 12px; margin-bottom: 15px; }
+.registration-section h3 { margin: 0; font-size: 1rem; }
+.registration-section .eyebrow { margin-bottom: 6px; }
+.model-preparation { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 0 0 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+.model-preparation > div { min-width: 0; }
+.model-preparation h4 { margin: 0 0 10px; font-size: .78rem; }
+.model-preparation .badge { max-width: 100%; white-space: normal; line-height: 1.5; }
+.model-download-progress { display: grid; gap: 5px; margin-top: 12px; color: var(--muted); font-size: .72rem; }
+.model-download-progress progress { width: 100%; accent-color: var(--green); }
+.photo-help, .photo-empty { color: var(--muted); font-size: .76rem; line-height: 1.7; overflow-wrap: anywhere; }
+.photo-help a { color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
+.photo-empty { padding: 24px; background: var(--surface-soft); border-radius: 10px; text-align: center; }
+.photo-notice, .photo-progress { padding: 12px 15px; background: var(--green-soft); color: var(--green); border-radius: 9px; font-size: .8rem; line-height: 1.6; }
+.photo-progress { border-left: 3px solid var(--green); }
+.photo-sync-warning, .recognition-verdict { margin: 12px 0; padding: 12px 15px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); color: var(--ink); font-size: .8rem; line-height: 1.65; overflow-wrap: anywhere; }
+.photo-sync-warning p, .recognition-verdict p { margin: 6px 0; }
+.recognition-verdict p { color: var(--muted); font-size: .76rem; }
+.reference-picker-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.reference-picker-actions > span { color: var(--muted); font-size: .75rem; }
+.photo-file-control { position: relative; overflow: hidden; cursor: pointer; }
+.photo-file-control input { position: absolute; width: 100%; height: 100%; inset: 0; opacity: 0; cursor: pointer; }
+.photo-file-control:focus-within { outline: 3px solid var(--green); outline-offset: 3px; }
+.photo-file-control.is-disabled { opacity: .5; cursor: not-allowed; }
+.reference-pending-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 9px; margin: 12px 0; }
+.reference-pending-grid > div { position: relative; min-width: 0; overflow: hidden; background: var(--surface-soft); border-radius: 8px; border: 1px solid var(--line); }
+.reference-pending-grid img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.reference-pending-grid > div > span { display: block; padding: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .66rem; }
+.reference-pending-grid button { position: absolute; top: 3px; right: 3px; display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--danger); }
+.reference-pending-grid button svg { width: 16px; }
+.photo-decode-error { white-space: normal !important; color: var(--danger); min-height: 80px; }
+.reference-camera-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; margin-top: 18px; }
+.reference-camera-controls .field { min-width: 0; }
+.reference-library { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+.reference-library > div { position: relative; min-width: 0; padding: 4px; background: var(--surface-soft); border: 2px solid transparent; border-radius: 10px; }
+.reference-library > .selected { border-color: var(--green); }
+.reference-select { display: block; padding: 0; width: 100%; border: 0; color: var(--ink); background: transparent; cursor: pointer; }
+.reference-select img { display: block; width: 100%; aspect-ratio: 1; border-radius: 5px; object-fit: cover; }
+.reference-select span { display: block; padding: 7px 0 3px; font-size: .64rem; }
+.reference-library > div > .icon-button { position: absolute; top: 5px; right: 5px; background: var(--surface); width: 28px; height: 28px; }
+.reference-editor { max-width: 660px; margin-inline: auto; }
+.reference-target-image { position: relative; width: 100%; background: var(--surface-soft); overflow: hidden; }
+.reference-editor .reference-target-image { touch-action: none; cursor: crosshair; user-select: none; }
+.reference-target-image > img { display: block; width: 100%; height: auto; }
+.reference-region-box { position: absolute; border: 2px solid #2fbc78; background: rgba(28, 118, 75, .12); pointer-events: none; }
+.reference-region-box > span { position: absolute; left: -2px; top: 0; max-width: min(220px, 100%); padding: 2px 4px; font-size: .66rem; font-weight: 700; line-height: 1.4; background: #153f2b; color: white; overflow-wrap: anywhere; }
+.reference-region-box.candidate-rejected { border-color: #e4ac38; background: rgba(166, 107, 25, .08); }
+.candidate-rejected > span { background: #644410; }
+.reference-region-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin: 15px 0; }
+.reference-region-fields input { width: 100%; min-width: 0; }
+.reference-suggestions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; font-size: .74rem; color: var(--muted); }
+.recognition-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+.recognition-metrics dt { margin-bottom: 7px; font-size: .69rem; color: var(--muted); }
+.recognition-metrics dd { margin: 0; font-weight: 650; font-size: .76rem; overflow-wrap: anywhere; }
+.recognition-result { margin-top: 24px; }
+.recognition-result-header { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.recognition-compare { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 15px; }
+.recognition-compare figure { min-width: 0; margin: 0; }
+.recognition-compare figcaption { color: var(--muted); font-size: .72rem; margin-bottom: 9px; }
+.recognition-candidates { display: grid; gap: 12px; }
+.recognition-candidates article { padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.recognition-candidates header { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: .8rem; }
+.recognition-candidates dl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: .72rem; }
+.recognition-candidates dt { color: var(--muted); margin-bottom: 3px; }
+.recognition-candidates dd { margin: 0; overflow-wrap: anywhere; }
+.recognition-candidates p, .recognition-no-match { font-size: .77rem; color: var(--muted); line-height: 1.6; }
+.photo-source-details { margin-top: 15px; font-size: .72rem; color: var(--muted); overflow-wrap: anywhere; }
+.photo-source-details summary { cursor: pointer; }
+.item-photo-summary { padding: 12px; margin: 8px 0; border: 1px solid var(--line); border-radius: 9px; }
+.item-photo-summary .badge { white-space: normal; line-height: 1.6; }
+.item-photo-summary p { margin: 7px 0 0; color: var(--muted); font-size: .7rem; }
+.item-photo-manage { width: 100%; margin-bottom: 10px; }
+.item-label-tools { margin: 15px 0; padding: 13px 15px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); font-size: .77rem; }
+.item-label-tools summary { cursor: pointer; font-weight: 650; }
+.item-label-tools .field { margin: 12px 0; }
+.item-label-tools > p { line-height: 1.7; }
+@media (max-width: 680px) {
+  .photo-registration { padding: 16px; }
+  .photo-registration-steps { grid-template-columns: 1fr 1fr; font-size: .72rem; }
+  .reference-pending-grid, .reference-library { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .reference-camera-controls, .recognition-compare { grid-template-columns: 1fr; }
+  .model-preparation { grid-template-columns: 1fr; }
+  .reference-region-fields, .recognition-metrics { grid-template-columns: 1fr 1fr; }
+  .registration-section > header .badge { white-space: normal; line-height: 1.6; }
+  .reference-picker-actions .button { flex: 1; }
+}
