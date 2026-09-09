@@ -69,7 +69,10 @@ class RegistrationService:
     def _write(self, name: str, content: bytes) -> str:
         url = f'/media/registered-items/{name}'
         path = self._path(url)
-        temporary = path.with_name(f'{path.name}.{uuid4().hex}.tmp')
+        # Keep the atomic staging filename bounded. Repeating the destination
+        # (reference id + profile-generation id) can exceed Windows MAX_PATH
+        # even when the final crop path itself is valid.
+        temporary = path.with_name(f'.{uuid4().hex}.tmp')
         try:
             temporary.write_bytes(content)
             os.replace(temporary, path)

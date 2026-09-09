@@ -163,7 +163,7 @@ export function DevicesPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="设备中心" title="插上 USB，一键装好摄像头" description="编译、刷写、串口配网、后台注册和绑定由受控任务依次完成；未检测到硬件时不会显示刷写成功。" actions={<button className="button secondary" onClick={() => void ports.reload()}><RefreshCw />刷新串口</button>} />
+      <PageHeader title="插上 USB，一键装好摄像头" description="编译、刷写、串口配网、后台注册和绑定由受控任务依次完成；未检测到硬件时不会显示刷写成功。" actions={<button className="button secondary" onClick={() => void ports.reload()}><RefreshCw />刷新串口</button>} />
       <section className="hardware-evidence panel">
         <div className="section-heading"><div><p className="eyebrow">真实验收状态</p><h2>固件与物理硬件证据</h2></div><Badge tone={manifestVerified ? 'success' : 'warning'}>{manifestVerified ? '编译与清单哈希已核验' : firmware.data.compile_passed ? '编译通过，清单哈希未核验' : '尚无有效构建清单'}</Badge></div>
         {firmware.error ? <ErrorState message={firmware.error} onRetry={firmware.reload} /> : <div className="truth-status-grid">

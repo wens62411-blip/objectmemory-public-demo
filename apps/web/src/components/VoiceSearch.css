@@ -8,3 +8,6 @@
 .voice-search-answer { margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--line); color: var(--ink); font-size: .95rem; line-height: 1.75; overflow-wrap: anywhere; }
 @media (max-width: 560px) { .voice-search { padding: 13px; } .voice-search-options { flex-direction: column; } .voice-search-actions > .button:first-child { min-height: 44px; } }
 @media (prefers-color-scheme: dark) { .voice-search { background: #172923; border-color: #40544b; } .voice-search-privacy, .voice-search-notice, .voice-search-actions > span { color: #b9c6c0; } .voice-search-options, .voice-search-transcript, .voice-search-answer { color: #edf3ef; } }
+
+.voice-search-settings { margin-top: 12px; }
+.voice-search-settings > summary { width: fit-content; padding-block: 6px; color: var(--ink); cursor: pointer; font-size: .85rem; }

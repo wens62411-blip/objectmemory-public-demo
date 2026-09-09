@@ -149,7 +149,6 @@ export function StoragePage() {
 
   return <div>
     <PageHeader
-      eyebrow="管理员 · 本地存储"
       title="存储管理"
       description="扫描、预览和清理均由后端统一处理。固定事件、当前状态证据和用户参考图片不属于普通自动清理范围。"
       actions={<button className="button secondary" disabled={Boolean(busy)} onClick={() => void status.reload()}><RefreshCw />刷新状态</button>}

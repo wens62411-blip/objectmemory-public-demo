@@ -30,6 +30,56 @@ async function json<T>(response: Awaited<ReturnType<APIRequestContext['get']>>) 
 
 test.describe.configure({ mode: 'serial' })
 
+test('PR2 真实后端：示例与手机菜单不写入真实记录，关闭后恢复交互', async ({ page, request }) => {
+  await json(await request.get('/api/session'))
+  const diagnostics = await json<{ database_path: string }>(await request.get('/api/system/diagnostics'))
+  const before = await sqliteCounts(diagnostics.database_path)
+  const writes: string[] = []
+  page.on('request', value => {
+    if (new URL(value.url()).pathname.startsWith('/api/') && !['GET', 'HEAD'].includes(value.method())) writes.push(value.url())
+  })
+  const backgrounds = new Map<number, string>()
+  for (const { width, scheme } of [
+    { width: 1360, scheme: 'light' }, { width: 390, scheme: 'light' },
+    { width: 1360, scheme: 'dark' }, { width: 390, scheme: 'dark' },
+  ] as const) {
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+    await page.setViewportSize({ width, height: 920 })
+    await page.goto('/')
+    await expect(page.locator('.topbar-status')).toHaveAttribute('data-runtime-mode', 'REAL')
+    const trigger = page.getByRole('button', { name: '先看示例', exact: true })
+    await trigger.click()
+    const dialog = page.getByRole('dialog', { name: '先看看物忆怎样回答', exact: true })
+    await expect(dialog.getByText('示例说明 · 非真实记录', { exact: true })).toBeVisible()
+    await expect(page.locator('body')).toHaveCSS('overflow', 'hidden')
+    await dialog.getByRole('button', { name: '没有记录', exact: true }).click()
+    await expect(dialog.getByRole('heading', { name: '示例：还没有钥匙的位置记录', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    expect(await page.locator('body').evaluate(element => element.style.overflow)).not.toBe('hidden')
+    expect(await page.locator('[inert]').count()).toBe(0)
+    if (width === 390) {
+      const menu = page.getByRole('button', { name: '打开菜单', exact: true })
+      await menu.click()
+      await expect(page.getByRole('dialog', { name: '导航菜单' })).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(menu).toBeFocused()
+      expect(await page.locator('[inert]').count()).toBe(0)
+    }
+    const layout = await page.evaluate(() => ({ viewport: innerWidth, content: document.documentElement.scrollWidth }))
+    expect(layout.content).toBeLessThanOrEqual(layout.viewport + 1)
+    const background = await page.locator('body').evaluate(element => getComputedStyle(element).backgroundColor)
+    if (scheme === 'light') backgrounds.set(width, background)
+    else expect(background).not.toBe(backgrounds.get(width))
+    await page.screenshot({ path: resolve(projectRoot, 'data', 'verification', `pr2-first-use-${width}-${scheme}.png`), fullPage: true })
+  }
+  expect(writes).toEqual([])
+  expect(await sqliteCounts(diagnostics.database_path)).toEqual(before)
+  expect(await json(await request.get('/api/items'))).toEqual([])
+  expect(await json(await request.get('/api/cameras'))).toEqual([])
+})
+
 test('场景页面真实 HTTP：离线不会自动建图，桌面和手机都没有虚构位置', async ({ page, request }) => {
   await json(await request.get('/api/session'))
   const diagnostics = await json<{ database_path: string }>(await request.get('/api/system/diagnostics'))
@@ -132,19 +182,20 @@ test('真实 FastAPI + 独立 SQLite：REAL 无视频源始终是 0 事件', asy
 
   await page.goto('/')
   await expect(page.getByText('REAL · 真实模式', { exact: true })).toBeVisible()
+  await page.getByText('查看系统概览与识别速度', { exact: true }).click()
   await expect(page.getByText('已注册物品', { exact: true })).toBeVisible()
   await expect(page.getByText('已记忆物品', { exact: true })).toHaveCount(0)
-  await expect(page.getByText('暂时没有真实摄像头产生的位置记录。', { exact: true })).toBeVisible()
+  await expect(page.getByText(/还没有历史移动事件。最后看到的位置可能已经存在/)).toBeVisible()
   await expect(page.getByText(/演示模式，当前事件不来自真实家庭摄像头/)).toHaveCount(0)
 
   await page.goto('/search')
   await page.getByRole('textbox', { name: '寻找物品', exact: true }).fill('我的手机在哪里')
   await page.getByRole('button', { name: '帮我找' }).click()
-  await expect(page.getByText('暂时没有真实摄像头产生的位置记录。', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '还没有添加物品', exact: true })).toBeVisible()
   await expect(page.getByText(/桌面|沙发|91%|16:32/)).toHaveCount(0)
 
   await page.reload()
-  await expect(page.getByText('暂时没有真实摄像头产生的位置记录。', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '还没有添加物品', exact: true })).toBeVisible()
   expect(await json<unknown[]>(await request.get('/api/events?limit=100'))).toHaveLength(0)
 
   const seed = await request.post('/api/system/demo-seed')
@@ -282,7 +333,7 @@ test('页面资源断开时保留真实模式与导航，重新加载恢复；�
   // Fault-inject only the static page chunk; API, sessions and SQLite stay real.
   await page.route(deviceChunk, route => route.abort('failed'))
   await page.goto('/')
-  await page.locator('details.advanced-nav summary').click()
+  await page.locator('details.advanced-nav summary').filter({ hasText: '高级工具' }).click()
   await page.getByRole('link', { name: '设备中心', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('页面暂时无法加载')
   await expect(page.locator('.topbar-status').getByText('REAL · 真实模式', { exact: true })).toBeVisible()

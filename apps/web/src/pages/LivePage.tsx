@@ -59,7 +59,7 @@ export function LivePage() {
 
   return (
     <div>
-      <PageHeader eyebrow="实时监控" title="看见，也记得发生过什么" description="一个连续画面，同帧显示物品位置；只有通过真实证据检查才保存记录。" actions={selected && <button className={`button ${running ? 'secondary' : 'primary'}`} disabled={busy} onClick={toggleCamera}>{running ? <><CircleStop />停止</> : <><Play />启动摄像头</>}</button>} />
+      <PageHeader title="看见，也记得发生过什么" description="一个连续画面，同帧显示物品位置；只有通过真实证据检查才保存记录。" actions={selected && <button className={`button ${running ? 'secondary' : 'primary'}`} disabled={busy} onClick={toggleCamera}>{running ? <><CircleStop />停止</> : <><Play />启动摄像头</>}</button>} />
       {cameras.loading && cameras.data.length === 0 ? <Loading label="正在读取摄像头…" /> : cameras.error ? <ErrorState message={cameras.error} onRetry={cameras.reload} /> : cameras.data.length === 0 ? <EmptyState icon={<CameraIcon />} title="先添加一个摄像头" description="添加电脑、浏览器或网络摄像头；测试回放仅在 DEMO 模式可用。" action={<Link className="button primary" to="/cameras?add=1">添加摄像头</Link>} /> : selected && (
         <>
           <div className="live-toolbar panel">

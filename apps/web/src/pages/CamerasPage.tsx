@@ -15,8 +15,8 @@ import { canonicalSourceType } from '../lib/provenance'
 import '../camera-usability.css'
 
 const sources: Array<{ type: SourceType; title: string; text: string; icon: typeof CameraIcon; tag?: string }> = [
-  { type: 'webcam', title: '电脑 / USB 摄像头', text: '使用本机 UVC 摄像头，自动测试分辨率。', icon: Laptop, tag: '最快开始' },
-  { type: 'browser', title: '浏览器直连摄像头', text: '客户端 JPEG 无法证明来自物理镜头；REAL 模式仅更新“最后看到”，不生成真实确认事件。', icon: Video, tag: '来源未验证' },
+  { type: 'webcam', title: '电脑 / USB 摄像头', text: '使用这台电脑内置或已插入的 USB 摄像头。', icon: Laptop, tag: '最快开始' },
+  { type: 'browser', title: '手机 / 浏览器摄像头', text: '客户端 JPEG 无法证明来自物理镜头；REAL 模式仅更新“最后看到”，不生成真实确认事件。', icon: Video, tag: '仅观察记录' },
   { type: 'esp32', title: 'ESP32 / XIAO 开发板', text: '通过设备中心安装、配网；仅支持明确适配的两种板型。', icon: RadioTower },
   { type: 'rtsp', title: 'RTSP 摄像头', text: '使用你有权访问的标准 RTSP 地址。', icon: Network },
   { type: 'onvif', title: 'ONVIF', text: '仅在你点击搜索时发现本地私有网络设备。', icon: Search },
@@ -66,6 +66,7 @@ export function CamerasPage() {
   const [params, setParams] = useSearchParams()
   const cameras = useApi<Camera[]>('/api/cameras', [])
   const backendHealth = usePolling<{ status: string }>('/api/health', { status: 'connecting' }, 5000)
+  const snapshotRevision = useMemo(() => Date.now(), [cameras.data, backendHealth.data])
   const [wizard, setWizard] = useState(params.get('add') === '1')
   const [step, setStep] = useState(1)
   const [form, setForm] = useState<WizardForm>(initialForm)
@@ -248,10 +249,10 @@ export function CamerasPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="摄像头管理" title="连接你已有的画面" description="支持电脑摄像头、浏览器直连、标准协议、已适配的 ESP32 / XIAO 开发板和明确授权的窗口区域。" actions={<div className="page-actions"><Link className="button secondary" to="/camera-diagnostics"><Activity />摄像头诊断</Link><button className="button primary" onClick={openWizard}><Plus />添加摄像头</button></div>} />
+      <PageHeader title="连接你已有的画面" description="支持电脑摄像头、浏览器直连、标准协议、已适配的 ESP32 / XIAO 开发板和明确授权的窗口区域。" actions={<div className="page-actions"><Link className="button secondary" to="/camera-diagnostics"><Activity />摄像头诊断</Link><button className="button primary" onClick={openWizard}><Plus />添加摄像头</button></div>} />
       {backendHealth.error && <div className="backend-offline-banner"><Wifi /><div><strong>后端未连接</strong><span>{backendHealth.error}。这不是摄像头故障；请先确认物忆后端正在当前端口运行。</span></div></div>}
       {cameras.loading ? <Loading /> : cameras.error ? <ErrorState message={cameras.error} onRetry={cameras.reload} /> : cameras.data.length === 0 ? <EmptyState icon={<CameraIcon />} title="还没有摄像头" description={runtime.mode === 'DEMO' ? '可添加测试视频；所有生成事件都会标记为模拟并写入 DEMO 数据库。' : '请添加电脑、浏览器或网络真实视频源。'} action={<button className="button primary" onClick={openWizard}><Plus />添加第一个摄像头</button>} /> : <div className="camera-card-grid">{cameras.data.map((camera) => <article className="camera-card" key={camera.id}>
-        <div className="camera-card-preview">{(['ready', 'online', 'running', 'streaming'].includes((camera.health?.status || '').toLowerCase()) || camera.health?.status_code === 'STREAMING') && <img src={`/api/cameras/${camera.id}/frame?t=${Date.now()}`} alt={`${camera.name}当前画面`} onError={(event) => { event.currentTarget.style.display = 'none' }} />}<CameraIcon /><div><Badge tone={statusTone(camera.health?.status) as 'success' | 'warning' | 'danger' | 'neutral'}>{camera.health?.status === 'ready' || camera.health?.status === 'streaming' ? '视频正常' : cameraStatusText(camera.health?.status_code || camera.health?.status, null)}</Badge><SourceBadge record={camera} />{['browser', 'browser_camera'].includes(camera.source_type) && <Badge tone="blue">浏览器直连</Badge>}</div></div>
+        <div className="camera-card-preview">{(['ready', 'online', 'running', 'streaming'].includes((camera.health?.status || '').toLowerCase()) || camera.health?.status_code === 'STREAMING') && <img key={`${camera.id}:${snapshotRevision}`} loading="lazy" decoding="async" src={`/api/cameras/${encodeURIComponent(camera.id)}/frame?t=${snapshotRevision}`} alt={`${camera.name}当前画面`} onError={(event) => { event.currentTarget.style.display = 'none' }} />}<CameraIcon /><div><Badge tone={statusTone(camera.health?.status) as 'success' | 'warning' | 'danger' | 'neutral'}>{camera.health?.status === 'ready' || camera.health?.status === 'streaming' ? '视频正常' : cameraStatusText(camera.health?.status_code || camera.health?.status, null)}</Badge><SourceBadge record={camera} />{['browser', 'browser_camera'].includes(camera.source_type) && <Badge tone="blue">浏览器直连</Badge>}</div></div>
         <div className="camera-card-body"><div className="camera-card-title"><div><h2>{camera.name}</h2><p>{camera.room_name}{camera.installation ? ` · ${camera.installation}` : ''}</p></div><span className={`status-dot ${camera.health?.status === 'ready' ? 'online' : ''}`} /></div>
         <dl><div><dt>采集 / 预览</dt><dd>{camera.health?.capture_fps?.toFixed(1) ?? '—'} / {camera.health?.preview_fps?.toFixed(1) ?? '—'} FPS</dd></div><div><dt>物品推理</dt><dd>{(camera.health?.inference_fps ?? camera.health?.fps)?.toFixed(1) ?? '—'} FPS</dd></div><div><dt>处理延迟</dt><dd>{camera.health?.latency_ms !== undefined ? `${Math.round(camera.health.latency_ms)} ms` : '—'}</dd></div></dl>
         {camera.health?.error && <p className="card-error">{camera.health.error}</p>}
@@ -260,8 +261,21 @@ export function CamerasPage() {
         </div></article>)}</div>}
 
       {wizard && <Modal title="添加摄像头" description="四步完成连接、命名和位置区域设置。" onClose={() => void closeWizard()} wide>
-        <div className="wizard-steps">{['选择来源', '测试连接', '设备信息', '划分区域'].map((label, index) => <div className={`${step === index + 1 ? 'active' : ''} ${step > index + 1 ? 'done' : ''}`} key={label}><span>{step > index + 1 ? <Check /> : index + 1}</span><strong>{label}</strong></div>)}</div>
-        {step === 1 && <div className="wizard-body"><div className="source-grid">{allowedSources.map(({ type, title, text, tag, icon: Icon }) => <button className={form.source_type === type ? 'selected' : ''} key={type} onClick={() => setForm((value) => ({ ...value, source_type: type, source: type === 'webcam' ? '0' : type === 'video' ? 'demo/sample-videos/object-memory-demo.mp4' : '' }))}><Icon /><div><strong>{title}</strong><span>{text}</span></div>{tag && <Badge tone={type === 'video' ? 'warning' : 'blue'}>{tag}</Badge>}</button>)}</div>{runtime.mode !== 'DEMO' && <div className="inline-banner info"><FileVideo />测试视频入口只在 DEMO 模式出现，不能写入 REAL 数据库。</div>}<div className="wizard-footer"><button className="button primary" onClick={() => setStep(2)}>下一步：测试连接 <ChevronRight /></button></div></div>}
+        <div className="wizard-steps">{['选择来源', '测试连接', '设备信息', '划分区域'].map((label, index) => <div aria-current={step === index + 1 ? 'step' : undefined} className={`${step === index + 1 ? 'active' : ''} ${step > index + 1 ? 'done' : ''}`} key={label}><span>{step > index + 1 ? <Check /> : index + 1}</span><strong>{label}</strong></div>)}</div>
+        {step === 1 && <div className="wizard-body">
+          <p>选择你手边的设备；画面读取成功后，再设置名称和区域。</p>
+          <div className="source-groups">{[
+            { title: '电脑或手机摄像头', types: ['webcam', 'browser'], advanced: false },
+            { title: '网络与专用设备（展开选择）', types: ['esp32', 'rtsp', 'onvif', 'mjpeg', 'screen'], advanced: true },
+            ...(runtime.mode === 'DEMO' ? [{ title: '演示视频', types: ['video'], advanced: false }] : []),
+          ].map(group => {
+            const options = <div className="source-grid">{allowedSources.filter(source => group.types.includes(source.type)).map(({ type, title, text, tag, icon: Icon }) => <button type="button" aria-pressed={form.source_type === type} className={form.source_type === type ? 'selected' : ''} key={type} onClick={() => setForm(value => ({ ...value, source_type: type, source: type === 'webcam' ? '0' : type === 'video' ? 'demo/sample-videos/object-memory-demo.mp4' : '' }))}><Icon /><div><strong>{title}</strong><span>{text}</span></div>{tag && <Badge tone={type === 'video' ? 'warning' : 'blue'}>{tag}</Badge>}</button>)}</div>
+            return group.advanced ? <details className="optional-details" key={group.title} open={group.types.includes(form.source_type) || undefined}><summary>{group.title}</summary>{options}</details> : <section key={group.title} aria-label={group.title}><h3>{group.title}</h3>{options}</section>
+          })}</div>
+          <p className="source-selection" role="status">已选择：{selectedSource?.title}</p>
+          {runtime.mode !== 'DEMO' && <p className="photo-help">测试视频入口只在 DEMO 模式出现。没有设备也可以先浏览首页示例；示例不会成为真实位置记录。</p>}
+          <div className="wizard-footer"><button className="button primary" onClick={() => setStep(2)}>下一步：测试连接 <ChevronRight /></button></div>
+        </div>}
         {step === 2 && <div className="wizard-body connection-step"><div className="selected-source"><span className="metric-icon green">{selectedSource && <selectedSource.icon />}</span><div><strong>{selectedSource?.title}</strong><span>{selectedSource?.text}</span></div></div>
           <div className="form-grid">
             {form.source_type === 'webcam' && <><Field label="摄像头编号" hint="编号不代表物理设备身份；通常从 0 开始。已经添加的编号应直接使用，不要重复添加。"><input type="number" min={0} max={16} step={1} value={form.index} onChange={(event) => setForm((value) => ({ ...value, index: Number(event.target.value), source: event.target.value }))} /></Field>{existingWebcam && <div className="camera-connection-notice full-field" role="status"><strong>编号 {form.index} 已添加：{existingWebcam.name}</strong><p>这是已有摄像头，不是连接失败。重复打开可能产生设备占用；可直接查看现有画面，或选择另一台实际连接的设备编号。</p><Link className="button secondary small" to={`/live?camera=${existingWebcam.id}`}>使用已有摄像头</Link></div>}</>}

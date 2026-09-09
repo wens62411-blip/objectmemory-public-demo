@@ -1,6 +1,6 @@
 import { Clock3, ImagePlus, MapPin, PackagePlus, Pencil, Plus, Printer, Trash2, Upload } from 'lucide-react'
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Badge, EmptyState, ErrorState, Field, Loading, Modal, PageHeader } from '../components/UI'
 import { useApi } from '../hooks/useApi'
 import { api } from '../lib/api'
@@ -17,6 +17,7 @@ interface ItemForm { name: string; type: string; description: string; owner: str
 const emptyForm: ItemForm = { name: '', type: '日常物品', description: '', owner: '', color: '', features: '', aliases: '', aruco_id: '', ring_enabled: false }
 
 export function ItemsPage() {
+  const [params, setParams] = useSearchParams()
   const items = useApi<Item[]>('/api/items', [])
   const [locations, setLocations] = useState<Record<string, SearchResult | null>>({})
   const [locationErrors, setLocationErrors] = useState<Record<string, string>>({})
@@ -44,6 +45,8 @@ export function ItemsPage() {
     setLocations((previous) => ({ ...previous, ...updates }))
     setLocationErrors(failures)
   }, { enabled: items.data.length > 0, immediate: true, resetKey: items.data })
+
+  useEffect(() => { if (params.get('add') === '1') { openNew(); setParams({}, { replace: true }) } }, [params])
 
   function openNew() { setEditing(null); setForm(emptyForm); setFiles([]); setModal(true) }
   function openEdit(item: Item) { setEditing(item); setForm({ name: item.name, type: item.type, description: item.description || '', owner: item.owner || '', color: item.color || '', features: item.features || '', aliases: item.aliases?.join('、') || '', aruco_id: item.aruco_id !== null && item.aruco_id !== undefined ? String(item.aruco_id).padStart(3, '0') : '', ring_enabled: item.ring_enabled }); setFiles([]); setModal(true) }
@@ -77,7 +80,7 @@ export function ItemsPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="物品管理" title="教物忆认出你的东西" description="从一张照片开始，确认物品、建立本地识别档案，再用摄像头的新视角检验。" actions={<button className="button primary" onClick={openNew}><Plus />添加物品</button>} />
+      <PageHeader title="教物忆认出你的东西" description="从一张照片开始，确认物品、建立本地识别档案，再用摄像头的新视角检验。" actions={<button className="button primary" onClick={openNew}><Plus />添加物品</button>} />
       <div className="inline-banner info"><ImagePlus /><div><strong>照片已保存，不等于已经能识别</strong><span>每件物品都能单独管理照片、确认目标框，并查看后台实际加载的档案版本。相似物品仍可能无法区分，现场测试会给出拒绝原因。</span></div></div>
       {saveReceipt && <p className="photo-notice" role="status">{saveReceipt}</p>}
       {items.loading ? <Loading /> : items.error ? <ErrorState message={items.error} onRetry={items.reload} /> : items.data.length === 0 ? <EmptyState icon={<PackagePlus />} title="还没有注册物品" description="添加手机、钥匙或钱包，上传一张清楚的照片即可开始。" action={<button className="button primary" onClick={openNew}><Plus />添加第一个物品</button>} /> : <div className="item-grid">{items.data.map((item) => {
@@ -101,11 +104,14 @@ export function ItemsPage() {
 
       {photoItem && <PhotoRegistration key={photoItem.id} item={photoItem} onClose={() => setPhotoItem(null)} onChanged={() => { void items.reload() }} />}
 
-      {modal && <Modal title={editing ? `编辑 ${editing.name}` : '添加物品'} description="保留名字和外观线索；照片保存后继续确认目标、建立档案。" onClose={() => { if (!busy) setModal(false) }} wide>
+      {modal && <Modal title={editing ? `编辑 ${editing.name}` : '添加物品'} description="先起个名字、添加照片，再确认目标并验证识别。其他信息可以稍后补充。" onClose={() => { if (!busy) setModal(false) }} wide>
         <form className="wizard-body item-form" onSubmit={save}>
-          <div className="form-grid"><Field label="物品名称"><input autoFocus value={form.name} onChange={(event) => setForm((value) => ({ ...value, name: event.target.value }))} placeholder="例如：我的手机" required /></Field><Field label="类型"><select value={form.type} onChange={(event) => setForm((value) => ({ ...value, type: event.target.value }))}><option>手机</option><option>钥匙</option><option>钱包</option><option>遥控器</option><option>眼镜</option><option>日常物品</option></select></Field><Field label="所有者"><input value={form.owner} onChange={(event) => setForm((value) => ({ ...value, owner: event.target.value }))} placeholder="例如：我 / 妈妈" /></Field><Field label="颜色"><input value={form.color} onChange={(event) => setForm((value) => ({ ...value, color: event.target.value }))} placeholder="例如：深蓝色" /></Field><Field label="别名" hint="用逗号分隔，搜索时也能识别。"><input value={form.aliases} onChange={(event) => setForm((value) => ({ ...value, aliases: event.target.value }))} placeholder="手机，电话" /></Field><Field label="特征说明" className="full-field"><input value={form.features} onChange={(event) => setForm((value) => ({ ...value, features: event.target.value }))} placeholder="例如：透明壳、背面有圆形贴纸" /></Field><Field label="描述" className="full-field"><textarea rows={2} value={form.description} onChange={(event) => setForm((value) => ({ ...value, description: event.target.value }))} placeholder="帮助家人区分相似物品" /></Field></div>
-          <label className="toggle-row"><div><strong>启用手机伴侣响铃</strong><span>仅适合在浏览器伴侣页已打开并允许声音的测试手机。</span></div><input type="checkbox" checked={form.ring_enabled} onChange={(event) => setForm((value) => ({ ...value, ring_enabled: event.target.checked }))} /></label>
+          <div className="form-grid"><Field label="物品名称"><input autoFocus value={form.name} onChange={(event) => setForm((value) => ({ ...value, name: event.target.value }))} placeholder="例如：我的手机" required /></Field><Field label="类型"><select value={form.type} onChange={(event) => setForm((value) => ({ ...value, type: event.target.value }))}><option>手机</option><option>钥匙</option><option>钱包</option><option>遥控器</option><option>眼镜</option><option>日常物品</option></select></Field></div>
+          <p className="photo-help">识别会按类型筛选候选，请为手机、钥匙等选择对应类型；“日常物品”不会作为手机类别参与匹配。其他外观线索仍需现场验证。</p>
           <section className="photo-section"><div className="section-heading compact-heading"><div><p className="eyebrow">照片注册</p><h3>上传第一张参考照片</h3><p>也可以先保存物品，再从正在使用的摄像头抓拍。</p></div></div><PhotoFilePicker files={files} onChange={setFiles} disabled={busy} existingCount={editing?.reference_images?.length || 0} /></section>
+          <details className="optional-details" open={editing ? true : undefined}><summary>补充信息（选填）</summary><div className="form-grid"><Field label="所有者"><input value={form.owner} onChange={(event) => setForm((value) => ({ ...value, owner: event.target.value }))} placeholder="例如：我 / 妈妈" /></Field><Field label="颜色"><input value={form.color} onChange={(event) => setForm((value) => ({ ...value, color: event.target.value }))} placeholder="例如：深蓝色" /></Field><Field label="别名" hint="用逗号分隔，搜索时也能识别。"><input value={form.aliases} onChange={(event) => setForm((value) => ({ ...value, aliases: event.target.value }))} placeholder="手机，电话" /></Field><Field label="特征说明" className="full-field"><input value={form.features} onChange={(event) => setForm((value) => ({ ...value, features: event.target.value }))} placeholder="例如：透明壳、背面有圆形贴纸" /></Field><Field label="描述" className="full-field"><textarea rows={2} value={form.description} onChange={(event) => setForm((value) => ({ ...value, description: event.target.value }))} placeholder="帮助家人区分相似物品" /></Field></div>
+          <label className="toggle-row"><div><strong>启用手机伴侣响铃</strong><span>仅适合在浏览器伴侣页已打开并允许声音的测试手机。</span></div><input type="checkbox" checked={form.ring_enabled} onChange={(event) => setForm((value) => ({ ...value, ring_enabled: event.target.checked }))} /></label>
+          </details>
           <details className="item-label-tools"><summary>高级诊断 · 绑定标签</summary><Field label="ArUco 标签编号"><select value={form.aruco_id} onChange={(event) => setForm((value) => ({ ...value, aruco_id: event.target.value }))}><option value="">不绑定</option>{Array.from({ length: 50 }, (_, id) => <option key={id} value={String(id).padStart(3, '0')} disabled={occupiedMarkerIds.has(id)}>{String(id).padStart(3, '0')}{occupiedMarkerIds.has(id) ? '（已被其他物品使用）' : ''}</option>)}</select></Field><p>仅用于标签诊断，不会替代照片识别。普通照片注册无需选择标签。</p></details>
           <div className="wizard-footer split"><button className="button ghost" type="button" disabled={busy} onClick={() => setModal(false)}>取消</button><button className="button primary" disabled={busy || !form.name.trim()}><Upload />{busy ? '正在保存…' : editing ? '保存修改' : '保存物品'}</button></div>
         </form>
