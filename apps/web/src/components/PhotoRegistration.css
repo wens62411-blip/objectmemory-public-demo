@@ -26,6 +26,17 @@
 .photo-file-control input { position: absolute; width: 100%; height: 100%; inset: 0; opacity: 0; cursor: pointer; }
 .photo-file-control:focus-within { outline: 3px solid var(--green); outline-offset: 3px; }
 .photo-file-control.is-disabled { opacity: .5; cursor: not-allowed; }
+.camera-photo-capture { display: grid; gap: 14px; padding: 18px; }
+.camera-photo-stage { position: relative; display: grid; place-items: center; min-height: 280px; max-height: 58vh; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: #101815; }
+.camera-photo-stage video, .camera-photo-stage > img { display: block; width: 100%; max-height: 58vh; object-fit: contain; }
+.camera-photo-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; color: #dbe8e2; text-align: center; }
+.camera-photo-placeholder svg { width: 34px; height: 34px; }
+.camera-live-indicator { position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 999px; background: rgba(10, 24, 19, .78); color: #f5fbf8; font-size: .68rem; font-weight: 800; letter-spacing: .03em; }
+.camera-live-indicator i { width: 8px; height: 8px; border-radius: 50%; background: #ff6d6d; box-shadow: 0 0 0 3px rgba(255,109,109,.18); }
+.camera-photo-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; color: var(--muted); font-size: .72rem; }
+.camera-security-note { margin: 0; padding: 12px 14px; border: 1px solid #d9b66c; border-radius: 12px; background: #fff7df; color: #614c1d; font-size: .74rem; line-height: 1.6; }
+.camera-photo-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 9px; }
+.camera-shutter { min-width: 150px; }
 .reference-pending-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 9px; margin: 12px 0; }
 .reference-pending-grid > div { position: relative; min-width: 0; overflow: hidden; background: var(--surface-soft); border-radius: 8px; border: 1px solid var(--line); }
 .reference-pending-grid img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
@@ -87,6 +98,14 @@
   .reference-region-fields, .recognition-metrics { grid-template-columns: 1fr 1fr; }
   .registration-section > header .badge { white-space: normal; line-height: 1.6; }
   .reference-picker-actions .button { flex: 1; }
+  .camera-photo-capture { padding: 14px; }
+  .camera-photo-stage { min-height: 240px; max-height: 55vh; border-radius: 13px; }
+  .camera-photo-stage video, .camera-photo-stage > img { max-height: 55vh; }
+  .camera-photo-actions .button { flex: 1; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .camera-security-note { border-color: #7e6734; background: #2b271a; color: #f0d99f; }
 }
 
 .registration-section { scroll-margin-top: 120px; }

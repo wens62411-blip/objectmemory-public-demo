@@ -8,6 +8,7 @@ import type { Camera, ImageRegion, Item, RecognitionProfile, RecognitionTest, Re
 import { Badge, Field, Loading, Modal } from './UI'
 import { SourceBadge } from './ProvenanceBadge'
 import { reportPollingError, useVisiblePolling } from '../hooks/useVisiblePolling'
+import { CameraPhotoCapture } from './CameraPhotoCapture'
 import './PhotoRegistration.css'
 
 const MAX_PHOTOS = 12
@@ -76,9 +77,11 @@ export function PhotoFilePicker({ files, onChange, disabled = false, existingCou
   files: File[]; onChange: (files: File[]) => void; disabled?: boolean; existingCount?: number
 }) {
   const [error, setError] = useState('')
-  function add(incoming: FileList | null) {
-    if (!incoming?.length) return
+  const firstRemoveRef = useRef<HTMLButtonElement>(null)
+  function add(incoming: FileList | readonly File[] | null) {
+    if (!incoming?.length) return false
     const next = [...files]
+    const before = next.length
     const issues: string[] = []
     for (const file of Array.from(incoming)) {
       const validType = ['image/jpeg', 'image/png'].includes(file.type) || (!file.type && /\.(jpe?g|png)$/i.test(file.name))
@@ -91,16 +94,17 @@ export function PhotoFilePicker({ files, onChange, disabled = false, existingCou
     }
     onChange(next)
     setError([...new Set(issues)].join(' '))
+    return next.length > before
   }
   return <div className="reference-picker">
     <div className="reference-picker-actions">
       <label className={`button secondary photo-file-control ${disabled ? 'is-disabled' : ''}`}><ImagePlus />选择照片<input aria-label="选择参考照片" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple disabled={disabled} onChange={(event) => { add(event.target.files); event.target.value = '' }} /></label>
-      <label className={`button ghost photo-file-control ${disabled ? 'is-disabled' : ''}`}><CameraIcon />手机拍一张<input aria-label="用手机拍摄参考照片" type="file" accept="image/jpeg,image/png" capture="environment" disabled={disabled} onChange={(event) => { add(event.target.files); event.target.value = '' }} /></label>
+      <CameraPhotoCapture disabled={disabled || existingCount + files.length >= MAX_PHOTOS} fallbackFocusRef={firstRemoveRef} onCapture={(file) => add([file])} />
       <span>{existingCount + files.length} / 12 张</span>
     </div>
     <p className="photo-help">一张即可开始；之后建议补充 6–12 张正面、背面、侧面和实际摆放视角。每张最多 12 MB，仅 JPEG / PNG；照片保存在这台电脑，不上传云端。</p>
     {error && <p className="inline-error" role="alert">{error}</p>}
-    {files.length > 0 && <div className="reference-pending-grid">{files.map((file, index) => <div key={`${file.name}-${file.size}-${file.lastModified}`}><LocalPhoto file={file} index={index} /><button type="button" disabled={disabled} onClick={() => onChange(files.filter((_, current) => current !== index))} aria-label={`移除待上传照片 ${index + 1}`}><X /></button><span>{file.name}</span></div>)}</div>}
+    {files.length > 0 && <div className="reference-pending-grid">{files.map((file, index) => <div key={`${file.name}-${file.size}-${file.lastModified}`}><LocalPhoto file={file} index={index} /><button ref={index === 0 ? firstRemoveRef : undefined} type="button" disabled={disabled} onClick={() => onChange(files.filter((_, current) => current !== index))} aria-label={`移除待上传照片 ${index + 1}`}><X /></button><span>{file.name}</span></div>)}</div>}
   </div>
 }
 
@@ -217,7 +221,7 @@ export function PhotoRegistration({ item, onClose, onChanged }: { item: Item; on
   const confirmedCount = references.filter((reference) => reference.region_confirmed).length
   const registrationStep = !references.length ? 0 : confirmedCount !== references.length || regionDirty ? 1 : profile?.registration_status !== 'ready' ? 2 : 3
   const nextAction = [
-    '还没有参考照片。先选择照片并保存；手机拍一张是上传文件，不会开启持续摄像头采集。',
+    '还没有参考照片。可以选择已有照片，或直接打开当前设备的摄像头拍一张；确认后仍需保存并框选目标。',
     '照片已经保存。请逐张框选并确认目标；完成后点击“建立 / 更新识别档案”。',
     '目标区域已确认。下一步建立识别档案，照片才会参与当前模型匹配。',
     '注册档案已建立。下一步在选定相机前换个视角测试；实时加载与物品身份接受仍以后台结果为准。',

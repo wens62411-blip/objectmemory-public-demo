@@ -98,6 +98,88 @@ test('场景页面真实 HTTP：离线不会自动建图，桌面和手机都没
   expect(await json(await request.get('/api/cameras'))).toEqual([])
 })
 
+test('注册页直接快门调用getUserMedia并保存浏览器实际编码JPEG，不触发文件选择或位置事件', async ({ request, baseURL }) => {
+  await json(await request.get('/api/session'))
+  const diagnostics = await json<{ database_path: string }>(await request.get('/api/system/diagnostics'))
+  const before = await sqliteCounts(diagnostics.database_path)
+  const browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] })
+  let itemId = ''
+  try {
+    const context = await browser.newContext({ permissions: ['camera'] })
+    await context.addInitScript(() => {
+      const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+      const calls: MediaStreamConstraints[] = []
+      Object.defineProperty(window, '__registrationCameraCalls', { configurable: true, value: calls })
+      navigator.mediaDevices.getUserMedia = async (constraints) => {
+        calls.push(constraints || {})
+        return original(constraints)
+      }
+    })
+    const page = await context.newPage()
+    await page.setViewportSize({ width: 390, height: 844 })
+    let fileChoosers = 0
+    page.on('filechooser', () => { fileChoosers += 1 })
+    await page.goto(`${baseURL}/items`)
+    await page.getByRole('button', { name: '添加物品', exact: true }).click()
+    await page.getByLabel('物品名称', { exact: true }).fill('浏览器直接快门链路试验')
+    await page.getByRole('combobox', { name: '类型', exact: true }).selectOption({ label: '手机' })
+    const directCapture = page.getByRole('button', { name: '直接拍照', exact: true })
+    expect(await directCapture.evaluate(element => element.tagName)).toBe('BUTTON')
+    await directCapture.click()
+
+    const captureDialog = page.getByRole('dialog', { name: '拍摄参考照片', exact: true })
+    const video = captureDialog.getByLabel('拍摄参考照片实时预览')
+    await expect(video).toBeVisible()
+    await expect.poll(async () => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBeGreaterThan(0)
+    const calls = await page.evaluate(() => (window as unknown as { __registrationCameraCalls: MediaStreamConstraints[] }).__registrationCameraCalls)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({ audio: false, video: { facingMode: { ideal: 'environment' } } })
+    await video.evaluate(element => {
+      const media = element as HTMLVideoElement
+      Object.defineProperty(window, '__registrationCameraTrack', { configurable: true, value: (media.srcObject as MediaStream).getVideoTracks()[0] })
+      Object.defineProperty(window, '__registrationCameraVideo', { configurable: true, value: media })
+    })
+    await captureDialog.getByRole('button', { name: '拍下这张', exact: true }).click()
+    await expect(captureDialog.getByAltText('刚拍摄的参考照片预览')).toBeVisible()
+    const layout = await page.evaluate(() => ({ viewport: innerWidth, content: document.documentElement.scrollWidth }))
+    expect(layout.content).toBeLessThanOrEqual(layout.viewport + 1)
+    await page.screenshot({ path: resolve(projectRoot, 'data', 'verification', 'direct-camera-capture-390.png'), fullPage: true })
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __registrationCameraTrack: MediaStreamTrack }).__registrationCameraTrack.readyState)).toBe('ended')
+    expect(await page.evaluate(() => (window as unknown as { __registrationCameraVideo: HTMLVideoElement }).__registrationCameraVideo.srcObject)).toBeNull()
+    expect(fileChoosers).toBe(0)
+    await captureDialog.getByRole('button', { name: '使用这张照片', exact: true }).click()
+    await expect(captureDialog).toHaveCount(0)
+    await expect(page.getByText(/camera-.*\.jpg/)).toBeVisible()
+
+    const uploaded = page.waitForResponse(response => response.url().endsWith('/reference-images') && response.request().method() === 'POST')
+    await page.getByRole('button', { name: '保存物品', exact: true }).click()
+    const uploadResponse = await uploaded
+    expect(uploadResponse.ok(), `直拍照片保存应成功，HTTP ${uploadResponse.status()}：${await uploadResponse.text()}`).toBe(true)
+    const items = await json<Array<{ id: string; name: string; reference_images?: Array<{ url?: string; path: string; width: number; height: number; sha256: string }> }>>(await request.get('/api/items'))
+    const item = items.find(value => value.name === '浏览器直接快门链路试验')
+    expect(item).toBeTruthy()
+    itemId = item!.id
+    expect(item!.reference_images).toHaveLength(1)
+    const reference = item!.reference_images![0]
+    expect(reference.width).toBeGreaterThan(0)
+    expect(reference.height).toBeGreaterThan(0)
+    expect(reference.sha256).toMatch(/^[a-f0-9]{64}$/)
+    const media = await request.get(reference.url || reference.path)
+    expect(media.ok()).toBe(true)
+    expect(media.headers()['content-type']).toContain('image/jpeg')
+    const jpeg = await media.body()
+    expect(jpeg.length).toBeGreaterThan(100)
+    expect([...jpeg.subarray(0, 2)]).toEqual([0xff, 0xd8])
+    expect(await sqliteCounts(diagnostics.database_path)).toEqual(before)
+    expect(await json<unknown[]>(await request.get('/api/events'))).toEqual([])
+    console.log('[REGISTRATION_CAMERA_E2E] real getUserMedia/canvas/JPEG/FastAPI/SQLite; Chromium synthetic camera only; no file chooser or movement event; not Android/iPhone proof')
+    await context.close()
+  } finally {
+    await browser.close()
+    if (itemId) await request.delete(`/api/items/${itemId}`)
+  }
+})
+
 test('照片注册真实 UI → FastAPI → DINO → SQLite，不以合成纹理证明实物识别', async ({ page, request }) => {
   await json(await request.get('/api/session'))
   const diagnostics = await json<{ database_path: string }>(await request.get('/api/system/diagnostics'))
